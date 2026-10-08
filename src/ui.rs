@@ -12,7 +12,8 @@ use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
 
 use crate::engine::{self, Target};
-use crate::keys::{self, Key, ROWS};
+use crate::i18n::{self, tf, Lang, Msg};
+use crate::keys::{self, KbLayout, KeyDef, Modk, Tok, LAYOUTS};
 use crate::model::{self, Action, Saved};
 use crate::worker::{self, Kind, Shared};
 
@@ -72,8 +73,9 @@ fn fid_m(size: f32) -> FontId {
     FontId::new(size, FontFamily::Monospace)
 }
 
-/// Polices système de Windows (Segoe UI, Consolas) : egui n'embarque aucune police, ce qui allège l'exécutable d'environ 1,4 Mo.
-fn setup_fonts(ctx: &egui::Context) {
+/// Polices système de Windows : egui n'embarque aucune police (exécutable plus léger de ~1,4 Mo).
+/// Segoe UI couvre le latin, le cyrillique et l'arabe ; Microsoft YaHei n'est chargée que si le chinois est utilisé.
+fn setup_fonts(ctx: &egui::Context, cjk: bool) {
     let mut fonts = FontDefinitions::default();
     let dir = std::path::Path::new(r"C:\Windows\Fonts");
     let mut add = |key: &str, file: &str| -> bool {
@@ -85,22 +87,23 @@ fn setup_fonts(ctx: &egui::Context) {
             Err(_) => false,
         }
     };
-    // polices de Windows ; repli sur Arial / Courier New si Segoe UI ou Consolas manquent
+    // repli sur Arial / Courier New si Segoe UI ou Consolas manquent
     let regular = add("segoeui", "segoeui.ttf") || add("segoeui", "arial.ttf");
     let bold = add("segoeuib", "segoeuib.ttf") || add("segoeuib", "arialbd.ttf");
     let sym = add("seguisym", "seguisym.ttf");
     let mono = add("consola", "consola.ttf") || add("consola", "cour.ttf");
-    let base_prop = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-    let base_mono = fonts.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
-    let chain = |first: &[(&str, bool)], rest: &Vec<String>| -> Vec<String> {
-        let mut v: Vec<String> = first.iter().filter(|(_, ok)| *ok).map(|(k, _)| k.to_string()).collect();
-        v.extend(rest.iter().cloned());
-        v
-    };
-    fonts.families.insert(FontFamily::Proportional, chain(&[("segoeui", regular), ("seguisym", sym)], &base_prop));
-    fonts.families.insert(bold_family(), chain(&[("segoeuib", bold), ("segoeui", regular), ("seguisym", sym)], &base_prop));
-    fonts.families.insert(FontFamily::Monospace, chain(&[("consola", mono), ("seguisym", sym)], &base_mono));
+    let han = cjk && (add("msyh", "msyh.ttc") || add("msyh", "simsun.ttc"));
+    let han_bold = han && add("msyhbd", "msyhbd.ttc");
+    let chain = |first: &[(&str, bool)]| -> Vec<String> { first.iter().filter(|(_, ok)| *ok).map(|(k, _)| k.to_string()).collect() };
+    fonts.families.insert(FontFamily::Proportional, chain(&[("segoeui", regular), ("seguisym", sym), ("msyh", han)]));
+    fonts.families.insert(bold_family(), chain(&[("segoeuib", bold), ("segoeui", regular), ("seguisym", sym), ("msyhbd", han_bold), ("msyh", han)]));
+    fonts.families.insert(FontFamily::Monospace, chain(&[("consola", mono), ("segoeui", regular), ("seguisym", sym), ("msyh", han)]));
     ctx.set_fonts(fonts);
+}
+
+/// Caractère chinois/japonais/coréen : demande le chargement de la police correspondante.
+fn is_cjk(c: char) -> bool {
+    matches!(c as u32, 0x2E80..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF)
 }
 
 fn setup_style(ctx: &egui::Context) {
@@ -117,6 +120,142 @@ fn setup_style(ctx: &egui::Context) {
         s.spacing.scroll.bar_width = 8.0;
         s.interaction.selectable_labels = false; // le texte statique ne doit pas se sélectionner à la souris
     });
+}
+
+// ---------- texte mêlant arabe, latin et chiffres ----------
+// La bibliothèque d'interface ne gère pas l'ordre bidirectionnel : dans une phrase arabe, les mots latins et les
+// nombres s'afficheraient à l'envers. On découpe donc le texte en segments de même sens d'écriture et on les
+// place nous-mêmes (de droite à gauche pour l'arabe).
+fn is_rtl_char(c: char) -> bool {
+    matches!(c as u32, 0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF)
+}
+
+/// Symboles d'interface (flèches, formes, pictogrammes, + ×) : toujours placés comme du latin, jamais retournés.
+fn is_symbol(c: char) -> bool {
+    matches!(c as u32, 0x2190..=0x2BFF | 0x00D7) || c == '+'
+}
+
+/// Segments (texte, vrai si de droite à gauche) dans l'ordre logique. Un signe neutre entre deux segments de même
+/// sens suit ce sens ; entre deux sens différents, il suit le sens de base de la phrase (celui du premier mot).
+fn bidi_runs(text: &str) -> Vec<(String, bool)> {
+    let chars: Vec<char> = text.chars().collect();
+    let strong: Vec<Option<bool>> = chars
+        .iter()
+        .map(|&c| if is_rtl_char(c) { Some(true) } else if c.is_alphanumeric() || is_symbol(c) { Some(false) } else { None })
+        .collect();
+    let base = strong.iter().flatten().next().copied().unwrap_or(false);
+    let mut dirs: Vec<bool> = vec![base; chars.len()];
+    let mut i = 0;
+    while i < chars.len() {
+        if let Some(d) = strong[i] {
+            dirs[i] = d;
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < chars.len() && strong[i].is_none() {
+            i += 1;
+        }
+        let prev = if start > 0 { strong[..start].iter().rev().flatten().next().copied() } else { None };
+        let next = strong[i..].iter().flatten().next().copied();
+        let d = if prev.is_some() && prev == next { prev.unwrap_or(base) } else { base };
+        for slot in dirs.iter_mut().take(i).skip(start) {
+            *slot = d;
+        }
+    }
+    let mut runs: Vec<(String, bool)> = Vec::new();
+    for (c, d) in chars.into_iter().zip(dirs) {
+        match runs.last_mut() {
+            Some((t, rd)) if *rd == d => t.push(c),
+            _ => runs.push((c.to_string(), d)),
+        }
+    }
+    runs
+}
+
+/// Vrai si ce texte doit être dessiné segment par segment (interface en arabe avec du latin, des chiffres ou des symboles).
+fn needs_mixed(text: &str) -> bool {
+    i18n::lang() == Lang::Ar && text.chars().any(is_rtl_char) && bidi_runs(text).len() > 1
+}
+
+/// Segment prêt à dessiner : espaces de bord (que la mise en page supprime) comptés à part.
+struct Run {
+    lead: f32,
+    trail: f32,
+    galley: std::sync::Arc<egui::Galley>,
+}
+
+fn layout_runs(painter: &egui::Painter, text: &str, font: &FontId, color: Color32) -> (Vec<Run>, bool) {
+    let space = painter.layout_no_wrap("a a".into(), font.clone(), color).size().x - painter.layout_no_wrap("aa".into(), font.clone(), color).size().x;
+    let runs = bidi_runs(text);
+    let rtl_base = runs.first().is_some_and(|r| r.1);
+    let out = runs
+        .into_iter()
+        .map(|(t, _)| {
+            let lead = t.chars().take_while(|c| *c == ' ').count() as f32 * space;
+            let trail = t.chars().rev().take_while(|c| *c == ' ').count() as f32 * space;
+            Run { lead, trail, galley: painter.layout_no_wrap(t.trim().to_string(), font.clone(), color) }
+        })
+        .collect();
+    (out, rtl_base)
+}
+
+fn text_width(painter: &egui::Painter, text: &str, font: &FontId) -> f32 {
+    if needs_mixed(text) {
+        layout_runs(painter, text, font, TXT).0.iter().map(|r| r.lead + r.galley.size().x + r.trail).sum()
+    } else {
+        painter.layout_no_wrap(text.to_string(), font.clone(), TXT).size().x
+    }
+}
+
+/// Comme `Painter::text`, mais gère les textes arabes contenant du latin, des chiffres ou des symboles.
+fn paint_text(painter: &egui::Painter, anchor: Align2, pos: egui::Pos2, text: &str, font: FontId, color: Color32) {
+    if !needs_mixed(text) {
+        painter.text(pos, anchor, text, font, color);
+        return;
+    }
+    let (runs, rtl_base) = layout_runs(painter, text, &font, color);
+    let total: f32 = runs.iter().map(|r| r.lead + r.galley.size().x + r.trail).sum();
+    let height = runs.iter().map(|r| r.galley.size().y).fold(0.0, f32::max);
+    let left = match anchor.x() {
+        Align::Min => pos.x,
+        Align::Center => pos.x - total / 2.0,
+        Align::Max => pos.x - total,
+    };
+    let top = match anchor.y() {
+        Align::Min => pos.y,
+        Align::Center => pos.y - height / 2.0,
+        Align::Max => pos.y - height,
+    };
+    // phrase arabe : le premier segment logique est le plus à droite
+    let mut x = if rtl_base { left + total } else { left };
+    for r in runs {
+        let w = r.galley.size().x;
+        if rtl_base {
+            x -= r.lead + w;
+            painter.galley(pos2(x, top), r.galley, color);
+            x -= r.trail;
+        } else {
+            x += r.lead;
+            painter.galley(pos2(x, top), r.galley, color);
+            x += w + r.trail;
+        }
+    }
+}
+
+/// Étiquette sur une ligne tronquée à la largeur disponible, texte complet au survol.
+fn label_truncated(ui: &mut Ui, text: &str, size: f32, color: Color32) {
+    if !needs_mixed(text) {
+        ui.add(egui::Label::new(RichText::new(text).font(fid(size)).color(color)).truncate()).on_hover_text(text);
+        return;
+    }
+    let font = fid(size);
+    let h = ui.painter().layout_no_wrap("A".into(), font.clone(), color).size().y;
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+    let rtl = bidi_runs(text).first().is_some_and(|r| r.1);
+    let (align, anchor_x) = if rtl { (Align2::RIGHT_CENTER, rect.right()) } else { (Align2::LEFT_CENTER, rect.left()) };
+    paint_text(&ui.painter().with_clip_rect(rect), align, pos2(anchor_x, rect.center().y), text, font, color);
+    resp.on_hover_text(text);
 }
 
 // ---------- petits composants dessinés à la main ----------
@@ -166,7 +305,7 @@ impl Pill {
     }
     fn show(self, ui: &mut Ui) -> Response {
         let font = fid_b(self.size);
-        let text_w = ui.painter().layout_no_wrap(self.text.clone(), font.clone(), self.fg).size().x;
+        let text_w = text_width(ui.painter(), &self.text, &font);
         let w = if self.full { ui.available_width() } else { (text_w + 2.0 * self.pad).max(self.min_w) };
         let (rect, resp) = ui.allocate_exact_size(vec2(w, self.h), if self.enabled { Sense::click() } else { Sense::hover() });
         reg(self.text.clone(), rect);
@@ -182,9 +321,9 @@ impl Pill {
         let fg = if self.enabled { self.fg } else { self.fg.gamma_multiply(0.45) };
         ui.painter().rect_filled(rect, CornerRadius::same(self.radius), fill);
         if self.left {
-            ui.painter().text(pos2(rect.left() + self.pad, rect.center().y), Align2::LEFT_CENTER, &self.text, font, fg);
+            paint_text(ui.painter(), Align2::LEFT_CENTER, pos2(rect.left() + self.pad, rect.center().y), &self.text, font, fg);
         } else {
-            ui.painter().text(rect.center(), Align2::CENTER_CENTER, &self.text, font, fg);
+            paint_text(ui.painter(), Align2::CENTER_CENTER, rect.center(), &self.text, font, fg);
         }
         if resp.hovered() && self.enabled {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
@@ -210,21 +349,25 @@ fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 }
 
 fn label(ui: &mut Ui, text: &str, size: f32, color: Color32) {
-    ui.label(RichText::new(text).font(fid(size)).color(color));
+    if needs_mixed(text) {
+        label_truncated(ui, text, size, color);
+    } else {
+        ui.label(RichText::new(text).font(fid(size)).color(color));
+    }
 }
 
 /// Étiquette centrée verticalement dans une ligne de 36 (alignée avec les champs de saisie).
 fn vlabel(ui: &mut Ui, text: &str, size: f32, color: Color32) {
     let font = fid(size);
-    let w = ui.painter().layout_no_wrap(text.to_string(), font.clone(), color).size().x;
+    let w = text_width(ui.painter(), text, &font);
     let (rect, _) = ui.allocate_exact_size(vec2(w + 2.0, 36.0), Sense::hover());
-    ui.painter().text(pos2(rect.left(), rect.center().y), Align2::LEFT_CENTER, text, font, color);
+    paint_text(ui.painter(), Align2::LEFT_CENTER, pos2(rect.left(), rect.center().y), text, font, color);
 }
 
 /// Interrupteur façon « switch » (toute la zone est cliquable) ; renvoie vrai si la valeur a changé.
 fn toggle(ui: &mut Ui, on: &mut bool, text: &str) -> bool {
     let font = fid(13.0);
-    let text_w = ui.painter().layout_no_wrap(text.to_string(), font.clone(), TXT).size().x;
+    let text_w = text_width(ui.painter(), text, &font);
     let (rect, resp) = ui.allocate_exact_size(vec2(40.0 + 8.0 + text_w + 2.0, 36.0), Sense::click());
     reg(text, rect);
     let mut changed = false;
@@ -240,7 +383,7 @@ fn toggle(ui: &mut Ui, on: &mut bool, text: &str) -> bool {
     ui.painter().rect_filled(track, CornerRadius::same(11), GRIS.lerp_to_gamma(ACCENT, t));
     let x = egui::lerp(track.left() + 11.0..=track.right() - 11.0, t);
     ui.painter().circle_filled(pos2(x, track.center().y), 8.0, if *on { Color32::WHITE } else { hex(0xd0d4e4) });
-    ui.painter().text(pos2(rect.left() + 48.0, rect.center().y), Align2::LEFT_CENTER, text, font, TXT);
+    paint_text(ui.painter(), Align2::LEFT_CENTER, pos2(rect.left() + 48.0, rect.center().y), text, font, TXT);
     changed
 }
 
@@ -293,8 +436,40 @@ fn num_field(ui: &mut Ui, v: &mut u32, lo: u32, hi: u32, width: f32, digits: usi
     field_rect
 }
 
+/// Liste déroulante au style de l'application ; renvoie le rectangle du bouton.
+fn combo(ui: &mut Ui, id: &str, selected: &str, width: f32, add: impl FnOnce(&mut Ui)) -> Rect {
+    let mut rect = Rect::NOTHING;
+    ui.scope(|ui| {
+        {
+            let vis = &mut ui.style_mut().visuals;
+            for w in [&mut vis.widgets.inactive, &mut vis.widgets.hovered, &mut vis.widgets.active, &mut vis.widgets.open] {
+                w.bg_fill = FIELD;
+                w.weak_bg_fill = FIELD;
+                w.corner_radius = CornerRadius::same(10);
+                w.bg_stroke = Stroke::new(1.0, BORDER);
+                w.fg_stroke.color = TXT;
+            }
+            vis.widgets.hovered.weak_bg_fill = KEY_HOV;
+            vis.selection.bg_fill = ACCENT.gamma_multiply(0.6);
+        }
+        ui.style_mut().spacing.button_padding = vec2(10.0, 8.0);
+        let r = egui::ComboBox::from_id_salt(id)
+            .width(width)
+            .selected_text(RichText::new(selected).font(fid(13.0)).color(TXT))
+            .show_ui(ui, add);
+        rect = r.response.rect;
+    });
+    rect
+}
+
 // ---------- application ----------
 pub struct App {
+    lang: Lang,
+    lang_user: Option<Lang>,      // langue choisie par l'utilisateur (sinon : celle de Windows)
+    layout: &'static KbLayout,
+    layout_user: Option<&'static str>,
+    rows: Vec<Vec<KeyDef>>,       // clavier à l'écran, dans la langue et la disposition courantes
+    cjk: bool,                    // police chinoise chargée
     ed: Action,
     actions: Vec<Action>,
     list_mode: bool,
@@ -324,12 +499,23 @@ const TEXT_ID: &str = "texte_a_envoyer";
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        setup_fonts(&cc.egui_ctx);
+        let saved = model::load();
+        let lang_user = saved.lang.as_deref().and_then(Lang::from_code);
+        let lang = std::env::var("AUTOKEY_LANG").ok().and_then(|v| Lang::from_code(&v)).or(lang_user).unwrap_or_else(i18n::detect);
+        i18n::set_lang(lang); // avant tout texte : le message d'état initial est dans la bonne langue
+        let layout_user = saved.layout.as_deref().and_then(|id| LAYOUTS.iter().find(|l| l.id == id)).map(|l| l.id);
+        let layout = if std::env::var_os("AUTOKEY_LAYOUT").is_some() { keys::detect() } else { layout_user.map(keys::by_id).unwrap_or_else(keys::detect) };
+        setup_fonts(&cc.egui_ctx, lang == Lang::Zh);
         setup_style(&cc.egui_ctx);
         egui_extras::install_image_loaders(&cc.egui_ctx);
-        let saved = model::load();
         DEV.store(std::env::var_os("AUTOKEY_STATE").is_some(), Ordering::Relaxed);
         App {
+            lang,
+            lang_user,
+            layout,
+            layout_user,
+            rows: keys::build(layout),
+            cjk: lang == Lang::Zh,
             ed: saved.editor,
             actions: saved.actions,
             list_mode: saved.list_mode,
@@ -356,6 +542,31 @@ impl App {
         }
     }
 
+    /// Change la langue de l'interface (textes, clavier, polices) sans redémarrer.
+    fn set_language(&mut self, ctx: &egui::Context, l: Lang) {
+        self.lang = l;
+        self.lang_user = Some(l);
+        i18n::set_lang(l);
+        if l == Lang::Zh && !self.cjk {
+            self.cjk = true;
+            setup_fonts(ctx, true);
+        }
+        self.rows = keys::build(self.layout);
+        let kind = self.sh.status.lock().unwrap().1;
+        if kind == Kind::Info && !self.running() {
+            self.sh.set_status(ctx, i18n::t(Msg::EmergencyStop), Kind::Info);
+        }
+        self.fit = 4;
+        self.persist();
+    }
+
+    fn set_layout(&mut self, l: &'static KbLayout) {
+        self.layout = l;
+        self.layout_user = Some(l.id);
+        self.rows = keys::build(l);
+        self.persist();
+    }
+
     fn running(&self) -> bool {
         self.sh.running.load(Ordering::SeqCst)
     }
@@ -366,7 +577,13 @@ impl App {
     }
 
     fn persist(&self) {
-        model::save(&Saved { editor: self.ed.clone(), list_mode: self.list_mode, actions: self.actions.clone() });
+        model::save(&Saved {
+            editor: self.ed.clone(),
+            list_mode: self.list_mode,
+            actions: self.actions.clone(),
+            lang: self.lang_user.map(|l| l.code().to_string()),
+            layout: self.layout_user.map(str::to_string),
+        });
     }
 
     fn status(&self, ctx: &egui::Context, text: impl Into<String>, kind: Kind) {
@@ -396,18 +613,22 @@ impl App {
         state.store(ctx, id);
     }
 
-    fn click_key(&mut self, ctx: &egui::Context, key: &Key) {
+    fn click_key(&mut self, ctx: &egui::Context, key: KeyDef) {
         if self.busy() {
             return;
         }
-        if keys::is_mod(key.label) {
-            if let Some(p) = self.ed.mods.iter().position(|m| m == key.label) {
-                self.ed.mods.remove(p);
-            } else {
-                self.ed.mods.push(key.label.to_string());
+        match key.tok {
+            Tok::Mod(m) => {
+                let name = m.canonical();
+                if let Some(p) = self.ed.mods.iter().position(|x| x == name) {
+                    self.ed.mods.remove(p);
+                } else {
+                    self.ed.mods.push(name.to_string());
+                }
             }
-        } else {
-            self.insert_text(ctx, &format!("[{}]", key.label.trim()));
+            Tok::Named(n) => self.insert_text(ctx, &format!("[{}]", n.canonical())),
+            Tok::Char(c) => self.insert_text(ctx, &format!("[{c}]")),
+            Tok::Text(t) => self.insert_text(ctx, &t),
         }
     }
 
@@ -420,12 +641,12 @@ impl App {
             return None;
         }
         if a.text.is_empty() && a.mods.is_empty() {
-            self.status(ctx, "Rien à envoyer : tape du texte ou clique une touche.", Kind::Warn);
+            self.status(ctx, i18n::t(Msg::NothingToSend), Kind::Warn);
             return None;
         }
         if check_date {
             if let Err(e) = model::when(&a) {
-                self.status(ctx, format!("Date ou heure invalide – {e}"), Kind::Err);
+                self.status(ctx, tf(Msg::InvalidDateTime, &[&e]), Kind::Err);
                 return None;
             }
         }
@@ -438,13 +659,13 @@ impl App {
         }
         let jobs: Result<Vec<model::Job>, String> = if self.list_mode {
             if self.actions.is_empty() {
-                self.status(ctx, "La liste est vide : ajoute au moins une action.", Kind::Warn);
+                self.status(ctx, i18n::t(Msg::ListEmpty), Kind::Warn);
                 return;
             }
             self.actions
                 .iter()
                 .enumerate()
-                .map(|(i, a)| model::make_job(a, None).map_err(|e| format!("l'action {} est invalide : {e}", i + 1)))
+                .map(|(i, a)| model::make_job(a, None).map_err(|e| tf(Msg::ActionInvalid, &[&(i + 1), &e])))
                 .collect()
         } else {
             let Some(a) = self.snapshot(ctx, true) else { return };
@@ -466,7 +687,7 @@ impl App {
         }
         let Some(a) = self.snapshot(ctx, false) else { return };
         match model::make_job(&a, Some(model::now_secs() + 3.0)) {
-            Ok(job) => worker::spawn_jobs(vec![job], Some("Test".into()), self.sh.clone(), ctx.clone()),
+            Ok(job) => worker::spawn_jobs(vec![job], Some(i18n::t(Msg::TestName).to_string()), self.sh.clone(), ctx.clone()),
             Err(e) => self.status(ctx, e, Kind::Err),
         }
     }
@@ -485,55 +706,94 @@ impl App {
     }
 
     // ----- parties de l'interface -----
-    fn head(&mut self, ui: &mut Ui) {
+    fn head(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             ui.add(egui::Image::new(egui::include_image!("../assets/autokey.png")).fit_to_exact_size(vec2(40.0, 40.0)));
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 ui.label(RichText::new("AutoKey").font(fid_b(22.0)).color(TXT));
-                label(ui, "Une touche, un texte, à la milliseconde près.", 11.0, MUTED);
+                label(ui, i18n::t(Msg::Subtitle), 11.0, MUTED);
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let before = self.list_mode;
-                toggle(ui, &mut self.list_mode, "Mode liste d'actions");
+                toggle(ui, &mut self.list_mode, i18n::t(Msg::ListMode));
                 if before != self.list_mode {
                     self.fit = 4;
                     self.persist();
                 }
                 ui.add_space(14.0);
                 let who = AUTHOR.split(" aka ").next().unwrap_or("");
-                if Pill::new(format!("♥  Soutenir {who}"), PAYPAL, PAYPAL_HOV, Color32::WHITE).radius(18).show(ui).clicked() {
+                if Pill::new(format!("♥  {}", tf(Msg::Donate, &[&who])), PAYPAL, PAYPAL_HOV, Color32::WHITE).radius(18).show(ui).clicked() {
                     engine::open_url(DONATE_URL);
+                }
+                ui.add_space(8.0);
+                let mut chosen: Option<Lang> = None;
+                let r = combo(ui, "lang_combo", self.lang.name(), 120.0, |ui| {
+                    for l in Lang::ALL {
+                        let it = ui.selectable_label(l == self.lang, RichText::new(l.name()).font(fid(14.0)));
+                        reg(format!("lang:{}", l.code()), it.rect);
+                        if it.clicked() {
+                            chosen = Some(l);
+                        }
+                    }
+                });
+                reg("lang", r);
+                if let Some(l) = chosen {
+                    self.set_language(ctx, l);
                 }
             });
         });
     }
 
+    /// Barre au-dessus du clavier : choix de la disposition.
+    fn layout_bar(&mut self, ui: &mut Ui) {
+        let busy = self.busy();
+        let mut chosen: Option<&'static KbLayout> = None;
+        ui.horizontal(|ui| {
+            vlabel(ui, i18n::t(Msg::Keyboard), 12.0, MUTED);
+            ui.add_enabled_ui(!busy, |ui| {
+                let r = combo(ui, "layout_combo", self.layout.name, 190.0, |ui| {
+                    for l in LAYOUTS {
+                        let it = ui.selectable_label(l.id == self.layout.id, RichText::new(l.name).font(fid(14.0)));
+                        reg(format!("layout:{}", l.id), it.rect);
+                        if it.clicked() {
+                            chosen = Some(l);
+                        }
+                    }
+                });
+                reg("layout", r);
+            });
+        });
+        if let Some(l) = chosen {
+            self.set_layout(l);
+        }
+    }
+
     fn keyboard(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let (kh, gap) = (30.0_f32, 3.0_f32);
         let avail = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(vec2(avail, ROWS.len() as f32 * (kh + gap)), Sense::hover());
-        let mut clicked: Option<&'static Key> = None;
-        for (r, row) in ROWS.iter().enumerate() {
+        let (rect, _) = ui.allocate_exact_size(vec2(avail, self.rows.len() as f32 * (kh + gap)), Sense::hover());
+        let mut clicked: Option<KeyDef> = None;
+        for (r, row) in self.rows.iter().enumerate() {
             let total: f32 = row.iter().map(|k| k.w).sum();
             let mut cum = 0.0;
             let y0 = rect.top() + r as f32 * (kh + gap) + gap / 2.0;
-            for key in row.iter() {
+            for (i, key) in row.iter().enumerate() {
                 let x0 = rect.left() + cum / total * avail + gap / 2.0;
                 let x1 = rect.left() + (cum + key.w) / total * avail - gap / 2.0;
                 cum += key.w;
                 let kr = Rect::from_min_max(pos2(x0, y0), pos2(x1, y0 + kh));
-                let resp = ui.interact(kr, ui.id().with(("key", r, key.label)), Sense::click());
+                let resp = ui.interact(kr, ui.id().with(("key", r, i)), Sense::click());
                 reg(format!("touche:{}", key.label), kr);
-                let held = self.ed.mods.iter().any(|m| m == key.label);
+                let held = matches!(key.tok, Tok::Mod(m) if self.ed.mods.iter().any(|x| x == m.canonical()));
                 let fill = if held { ORANGE } else if resp.hovered() { KEY_HOV } else { KEY };
                 ui.painter().rect_filled(kr, CornerRadius::same(8), fill);
-                ui.painter().text(kr.center(), Align2::CENTER_CENTER, key.label.trim(), fid_b(12.5), if held { DARK } else { TXT });
+                ui.painter().text(kr.center(), Align2::CENTER_CENTER, &key.label, fid_b(12.5), if held { DARK } else { TXT });
                 if resp.hovered() {
                     ctx.set_cursor_icon(CursorIcon::PointingHand);
                 }
                 if resp.clicked() {
-                    clicked = Some(key);
+                    clicked = Some(key.clone());
                 }
             }
         }
@@ -546,7 +806,7 @@ impl App {
         let running = self.running();
         ui.horizontal_wrapped(|ui| {
             ui.add_enabled_ui(!running, |ui| {
-                vlabel(ui, "Heure", 13.0, MUTED);
+                vlabel(ui, i18n::t(Msg::Time), 13.0, MUTED);
                 reg("num:h", num_field(ui, &mut self.ed.h, 0, 23, 52.0, 2, true, 1, 18.0, true));
                 vlabel(ui, ":", 18.0, MUTED);
                 reg("num:m", num_field(ui, &mut self.ed.m, 0, 59, 52.0, 2, true, 1, 18.0, true));
@@ -554,9 +814,9 @@ impl App {
                 reg("num:s", num_field(ui, &mut self.ed.s, 0, 59, 52.0, 2, true, 1, 18.0, true));
                 vlabel(ui, ".", 18.0, MUTED);
                 reg("num:ms", num_field(ui, &mut self.ed.ms, 0, 999, 66.0, 3, true, 50, 18.0, true));
-                vlabel(ui, "ms", 12.0, MUTED);
+                vlabel(ui, i18n::t(Msg::Ms), 12.0, MUTED);
                 ui.add_space(10.0);
-                toggle(ui, &mut self.ed.use_date, "Date");
+                toggle(ui, &mut self.ed.use_date, i18n::t(Msg::Date));
                 ui.scope(|ui| {
                     ui.style_mut().visuals.extreme_bg_color = FIELD;
                     let date_resp = ui.add_enabled(
@@ -569,23 +829,23 @@ impl App {
                     reg("date", date_resp.rect);
                 });
                 ui.add_space(10.0);
-                toggle(ui, &mut self.ed.repeat, "Répéter");
+                toggle(ui, &mut self.ed.repeat, i18n::t(Msg::Repeat));
                 reg("num:rep", num_field(ui, &mut self.ed.rep, 2, 9999, 60.0, 0, false, 1, 15.0, self.ed.repeat));
-                vlabel(ui, "× toutes les", 12.0, MUTED);
+                vlabel(ui, i18n::t(Msg::EveryX), 12.0, MUTED);
                 reg("num:gap", num_field(ui, &mut self.ed.gap, 0, 60000, 70.0, 0, false, 50, 15.0, self.ed.repeat));
-                vlabel(ui, "ms", 12.0, MUTED);
+                vlabel(ui, i18n::t(Msg::Ms), 12.0, MUTED);
             });
         });
         ui.add_space(2.0);
         ui.horizontal(|ui| {
             ui.add_enabled_ui(!running, |ui| {
-                if Pill::new("◎  Choisir la zone de saisie", ACCENT, ACCENT_HOV, Color32::WHITE).show(ui).clicked() {
+                if Pill::new(format!("◎  {}", i18n::t(Msg::PickTarget)), ACCENT, ACCENT_HOV, Color32::WHITE).show(ui).clicked() {
                     self.start_pick(ctx);
                 }
                 if Pill::new("✕", KEY, KEY_HOV, TXT).min_w(36.0).show(ui).clicked() {
                     self.ed.target = None;
                 }
-                let r = Pill::new("⚙  Options  ▾", KEY, KEY_HOV, TXT).show(ui);
+                let r = Pill::new(format!("⚙  {}  ▾", i18n::t(Msg::Options)), KEY, KEY_HOV, TXT).show(ui);
                 self.opt_rect = r.rect;
                 if r.clicked() {
                     self.opt_open = !self.opt_open;
@@ -596,10 +856,10 @@ impl App {
                 ui.painter().rect_filled(rect, CornerRadius::same(6), if on { color } else { GRIS });
             }
             let text = match &self.ed.target {
-                Some(t) => format!("Cible : {} – « {} »  (point {}, {})", t.exe, t.title.chars().take(70).collect::<String>(), t.dx, t.dy),
-                None => "Aucune cible : la touche part dans la fenêtre active.".to_string(),
+                Some(t) => tf(Msg::TargetInfo, &[&t.exe, &t.title.chars().take(70).collect::<String>(), &t.dx, &t.dy]),
+                None => i18n::t(Msg::NoTarget).to_string(),
             };
-            ui.add(egui::Label::new(RichText::new(&text).font(fid(12.0)).color(MUTED)).truncate()).on_hover_text(&text);
+            label_truncated(ui, &text, 12.0, MUTED);
         });
     }
 
@@ -612,9 +872,9 @@ impl App {
         let screen = ctx.content_rect();
         let pos = if below.y + h > screen.bottom() - self.bottom_h { pos2(below.x, self.opt_rect.top() - h - 6.0) } else { below };
         let defs = [
-            ("Réduire la fenêtre au lancement", VIOLET, 0),
-            ("Aller dans cette zone avant d'écrire", JAUNE, 1),
-            ("Revenir ensuite où j'étais", ORANGE, 2),
+            (i18n::t(Msg::OptMinimize), VIOLET, 0),
+            (i18n::t(Msg::OptGoTarget), JAUNE, 1),
+            (i18n::t(Msg::OptGoBack), ORANGE, 2),
         ];
         let out = egui::Area::new(Id::new("options_popup")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
             Frame::new()
@@ -659,7 +919,7 @@ impl App {
         let running = self.running();
         let text_edit = egui::TextEdit::singleline(&mut self.ed.text)
             .id(Id::new(TEXT_ID))
-            .hint_text(RichText::new("Tape ton texte ici… les touches cliquées s'ajoutent entre [crochets]").color(hex(0x6b7290)))
+            .hint_text(RichText::new(i18n::t(Msg::TextHint)).color(hex(0x6b7290)))
             .font(fid_m(16.0))
             .text_color(DARK)
             .desired_width(f32::INFINITY)
@@ -673,23 +933,24 @@ impl App {
                     w.bg_stroke = Stroke::new(2.0, ACCENT);
                 }
                 vis.selection.stroke = Stroke::new(2.0, ACCENT);
+                vis.override_text_color = Some(hex(0x5a6180)); // couleur du texte d'indication (le texte saisi reste sombre)
                 let text_resp = ui.add(text_edit);
                 reg("texte", text_resp.rect);
             });
         });
-        let mods: Vec<String> = self.ed.mods.iter().map(|m| m.trim().to_string()).collect();
-        let info = if mods.is_empty() {
-            "Clique une touche du clavier pour l'insérer dans la ligne, ou tape du texte directement.".to_string()
-        } else {
-            format!("Touches maintenues : {}", mods.join(" + "))
-        };
+        if !self.cjk && self.ed.text.chars().any(is_cjk) {
+            self.cjk = true;
+            setup_fonts(ui.ctx(), true); // du chinois/japonais/coréen est saisi : on charge la police correspondante
+        }
+        let mods: Vec<String> = self.ed.mods.iter().filter_map(|m| Modk::parse(m)).map(|k| k.label()).collect();
+        let info = if mods.is_empty() { i18n::t(Msg::HintKeyboard).to_string() } else { tf(Msg::HeldKeys, &[&mods.join(" + ")]) };
         label(ui, &info, 12.0, MUTED);
     }
 
     // ----- liste d'actions -----
     fn list_card(&mut self, ui: &mut Ui, ctx: &egui::Context) {
-        label(ui, "ACTIONS PLANIFIÉES", 11.0, MUTED);
-        label(ui, "Règle une action avec les cartes du dessus, puis ajoute-la. Double-clic sur une ligne pour la recharger.", 12.0, MUTED);
+        label(ui, i18n::t(Msg::ListTitle), 11.0, MUTED);
+        label(ui, i18n::t(Msg::ListHelp), 12.0, MUTED);
         let mut load: Option<usize> = None;
         let mut select: Option<usize> = None;
         for (i, a) in self.actions.iter().enumerate() {
@@ -703,20 +964,26 @@ impl App {
             }
             let when = format!(
                 "{} {:02}:{:02}:{:02}.{:03}",
-                if a.use_date { a.date.as_str() } else { "prochain" },
+                if a.use_date { a.date.as_str() } else { i18n::t(Msg::NextOccurrence) },
                 a.h, a.m, a.s, a.ms
             );
             let tgt = match (&a.target, a.use_target) {
                 (Some(t), true) => t.exe.clone(),
-                _ => "fenêtre active".to_string(),
+                _ => i18n::t(Msg::ActiveWindow).to_string(),
             };
             let rep = if a.repeat { format!("×{}", a.rep) } else { "-".to_string() };
-            let txt = if a.text.is_empty() { "(touches maintenues)".to_string() } else { a.text.clone() };
+            let mods: Vec<String> = a.mods.iter().filter_map(|m| Modk::parse(m)).map(|k| k.label()).collect();
+            let txt = match (mods.is_empty(), a.text.is_empty()) {
+                (true, true) => i18n::t(Msg::HeldOnly).to_string(),
+                (true, false) => a.text.clone(),
+                (false, true) => mods.join(" + "),
+                (false, false) => format!("{} + {}", mods.join(" + "), a.text),
+            };
             let (x_when, x_tgt, x_rep) = (rect.left() + 110.0, rect.right() - 230.0, rect.right() - 70.0);
             let x_text = x_when + 210.0;
             let cell = |x0: f32, x1: f32, text: &str, font: FontId, ui: &Ui| {
                 let clip = Rect::from_min_max(pos2(x0, rect.top()), pos2(x1, rect.bottom()));
-                ui.painter().with_clip_rect(clip).text(pos2(x0, rect.center().y), Align2::LEFT_CENTER, text, font, TXT);
+                paint_text(&ui.painter().with_clip_rect(clip), Align2::LEFT_CENTER, pos2(x0, rect.center().y), text, font, TXT);
             };
             cell(x_when, x_text - 6.0, &when, fid_m(13.0), ui);
             cell(x_text, x_tgt - 6.0, &txt, fid(13.0), ui);
@@ -742,33 +1009,33 @@ impl App {
         let mut changed = false;
         ui.add_enabled_ui(!busy, |ui| {
             ui.horizontal_wrapped(|ui| {
-                if plain_button(ui, "+  Ajouter l'action ci-dessus").clicked() {
+                if plain_button(ui, &format!("+  {}", i18n::t(Msg::AddAction))).clicked() {
                     if let Some(a) = self.snapshot(ctx, true) {
                         self.actions.push(a);
                         self.sel = Some(self.actions.len() - 1);
                         changed = true;
                     }
                 }
-                if plain_button(ui, "⟳  Remplacer la ligne sélectionnée").clicked() {
+                if plain_button(ui, &format!("⟳  {}", i18n::t(Msg::ReplaceRow))).clicked() {
                     if let Some(i) = self.sel.filter(|i| *i < self.actions.len()) {
                         if let Some(a) = self.snapshot(ctx, true) {
                             self.actions[i] = a;
                             changed = true;
                         }
                     } else {
-                        self.status(ctx, "Sélectionne d'abord une ligne de la liste.", Kind::Warn);
+                        self.status(ctx, i18n::t(Msg::SelectRowFirst), Kind::Warn);
                     }
                 }
-                if plain_button(ui, "✕  Supprimer").clicked() {
+                if plain_button(ui, &format!("✕  {}", i18n::t(Msg::Delete))).clicked() {
                     if let Some(i) = self.sel.filter(|i| *i < self.actions.len()) {
                         self.actions.remove(i);
                         self.sel = None;
                         changed = true;
                     } else {
-                        self.status(ctx, "Sélectionne d'abord une ligne de la liste.", Kind::Warn);
+                        self.status(ctx, i18n::t(Msg::SelectRowFirst), Kind::Warn);
                     }
                 }
-                if plain_button(ui, "Tout vider").clicked() {
+                if plain_button(ui, i18n::t(Msg::ClearAll)).clicked() {
                     self.actions.clear();
                     self.sel = None;
                     changed = true;
@@ -794,7 +1061,7 @@ impl App {
                 "minim": self.ed.minim, "use_target": self.ed.use_target, "back": self.ed.back,
                 "target": self.ed.target.as_ref().map(|t| t.exe.clone()), "list_mode": self.list_mode,
                 "actions": self.actions.iter().map(|a| a.text.clone()).collect::<Vec<_>>(), "sel": self.sel,
-                "opt_open": self.opt_open, "running": self.running(), "picking": self.sh.picking.load(Ordering::SeqCst),
+                "opt_open": self.opt_open, "lang": self.lang.code(), "layout": self.layout.id, "running": self.running(), "picking": self.sh.picking.load(Ordering::SeqCst),
                 "status": status, "kind": format!("{kind:?}"), "ppp": ppp, "widgets": widgets,
             })
             .to_string();
@@ -888,18 +1155,18 @@ impl App {
     fn bottom(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let running = self.running();
         ui.horizontal(|ui| {
-            let go = if self.list_mode { "▶  Armer la liste" } else { "▶  Armer" };
+            let go = format!("▶  {}", i18n::t(if self.list_mode { Msg::ArmList } else { Msg::Arm }));
             if Pill::new(go, GREEN, GREEN_HOV, hex(0x06210f)).size(14.0).h(40.0).radius(12).min_w(140.0).enabled(!running).show(ui).clicked() {
                 self.arm(ctx);
             }
-            if Pill::new("■  Annuler", RED, RED_HOV, Color32::WHITE).size(14.0).h(40.0).radius(12).min_w(120.0).enabled(running).show(ui).clicked() {
+            if Pill::new(format!("■  {}", i18n::t(Msg::Cancel)), RED, RED_HOV, Color32::WHITE).size(14.0).h(40.0).radius(12).min_w(120.0).enabled(running).show(ui).clicked() {
                 self.sh.cancel.store(true, Ordering::SeqCst);
             }
-            if Pill::new("Effacer", KEY, KEY_HOV, TXT).h(40.0).radius(12).enabled(!running).show(ui).clicked() {
+            if Pill::new(i18n::t(Msg::Clear), KEY, KEY_HOV, TXT).h(40.0).radius(12).enabled(!running).show(ui).clicked() {
                 self.ed.text.clear();
                 self.ed.mods.clear();
             }
-            if Pill::new("Test (3 s)", KEY, KEY_HOV, TXT).h(40.0).radius(12).enabled(!running).show(ui).clicked() {
+            if Pill::new(i18n::t(Msg::TestBtn), KEY, KEY_HOV, TXT).h(40.0).radius(12).enabled(!running).show(ui).clicked() {
                 self.test(ctx);
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -911,7 +1178,7 @@ impl App {
                     Kind::Warn => hex(0xffb454),
                     Kind::Err => hex(0xff7b7b),
                 };
-                ui.add(egui::Label::new(RichText::new(&text).font(fid(12.0)).color(color)).truncate()).on_hover_text(&text);
+                label_truncated(ui, &text, 12.0, color);
             });
         });
     }
@@ -944,7 +1211,7 @@ impl eframe::App for App {
 
         let head = egui::Panel::top("head")
             .frame(Frame::new().fill(BG).inner_margin(Margin::symmetric(20, 10)))
-            .show(ui, |ui| self.head(ui));
+            .show(ui, |ui| self.head(ui, &ctx));
         self.head_h = head.response.rect.height();
 
         let bottom = egui::Panel::bottom("bottom")
@@ -955,7 +1222,10 @@ impl eframe::App for App {
         egui::CentralPanel::default().frame(Frame::new().fill(BG).inner_margin(Margin::symmetric(10, 4))).show(ui, |ui| {
             let out = ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 10.0;
-                card(ui, |ui| self.keyboard(ui, &ctx));
+                card(ui, |ui| {
+                    self.layout_bar(ui);
+                    self.keyboard(ui, &ctx);
+                });
                 card(ui, |ui| self.programming(ui, &ctx));
                 card(ui, |ui| self.what(ui));
                 if self.list_mode {

@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
+use crate::i18n::{self, Msg};
+use crate::keys::Modk;
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, POINT, RECT};
 use windows_sys::Win32::System::Power::{
     SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
@@ -16,7 +18,7 @@ use windows_sys::Win32::System::Threading::{
 use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    keybd_event, GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
+    keybd_event, GetAsyncKeyState, GetKeyboardLayout, MapVirtualKeyExW, SendInput, VkKeyScanExW, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
     KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEINPUT, VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_MENU, VK_RBUTTON,
 };
@@ -82,6 +84,57 @@ pub fn send_char(c: char) -> bool {
         ok &= send_input(key_input(0, *unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
     }
     ok
+}
+
+/// Appuie sur la touche qui produit `c` avec la disposition de clavier **de la fenêtre qui reçoit les touches**
+/// (maj/AltGr ajoutés si le caractère l'exige). Si la disposition active ne contient pas ce caractère, il est tapé
+/// comme texte (Unicode). Renvoie faux si Windows a refusé un événement.
+pub fn press_char(c: char) -> bool {
+    let mut buf = [0u16; 2];
+    let units = c.encode_utf16(&mut buf);
+    if units.len() != 1 {
+        return send_char(c);
+    }
+    unsafe {
+        let fg = GetForegroundWindow();
+        let thread = if fg.is_null() { 0 } else { GetWindowThreadProcessId(fg, std::ptr::null_mut()) };
+        let hkl = GetKeyboardLayout(thread);
+        let r = VkKeyScanExW(units[0], hkl);
+        if r == -1 {
+            return send_char(c);
+        }
+        let (vk, state) = ((r & 0xFF) as u32, ((r >> 8) & 0xFF) as u8);
+        let sc = MapVirtualKeyExW(vk, 4, hkl); // MAPVK_VK_TO_VSC_EX
+        if sc == 0 {
+            return send_char(c);
+        }
+        let (scan, ext) = ((sc & 0xFF) as u16, sc >> 8 == 0xE0 || sc >> 8 == 0xE1);
+        // modificateurs exigés par le caractère : bit 0 = Maj, bit 1 = Ctrl, bit 2 = Alt (Ctrl + Alt = AltGr)
+        let mut held: Vec<(u16, bool)> = Vec::new();
+        if state & 1 != 0 {
+            held.push(Modk::LShift.scan());
+        }
+        if state & 6 == 6 {
+            held.push(Modk::AltGr.scan());
+        } else {
+            if state & 2 != 0 {
+                held.push(Modk::Ctrl.scan());
+            }
+            if state & 4 != 0 {
+                held.push(Modk::Alt.scan());
+            }
+        }
+        let mut ok = true;
+        for (s, e) in &held {
+            ok &= send_scan(*s, *e, false);
+        }
+        ok &= send_scan(scan, ext, false);
+        ok &= send_scan(scan, ext, true);
+        for (s, e) in held.iter().rev() {
+            send_scan(*s, *e, true);
+        }
+        ok
+    }
 }
 
 // ---------- anti-veille / arrêt d'urgence ----------
@@ -225,7 +278,7 @@ fn mouse_click(x: i32, y: i32) -> Result<(), String> {
     set_cursor_pos(x, y);
     sleep(Duration::from_millis(50));
     if cursor_pos() != (x, y) {
-        return Err("impossible de placer le curseur sur la zone cible".into());
+        return Err(i18n::t(Msg::ErrCursor).to_string());
     }
     let down_ok = mouse_flag(MOUSEEVENTF_LEFTDOWN);
     sleep(Duration::from_millis(30));
@@ -234,7 +287,7 @@ fn mouse_click(x: i32, y: i32) -> Result<(), String> {
     if down_ok && up_ok {
         Ok(())
     } else {
-        Err("clic refusé par Windows (fenêtre cible lancée en administrateur ?)".into())
+        Err(i18n::t(Msg::ErrClick).to_string())
     }
 }
 
@@ -302,9 +355,9 @@ pub fn focus_window(h: isize, stop: &dyn Fn() -> bool) -> bool {
 
 /// Focalise la fenêtre cible puis clique dans la zone repérée.
 pub fn click_target(t: &Target, stop: &dyn Fn() -> bool) -> Result<(), String> {
-    let h = find_window(t).ok_or("fenêtre cible introuvable")?;
+    let h = find_window(t).ok_or_else(|| i18n::t(Msg::ErrWindowNotFound).to_string())?;
     if !focus_window(h, stop) {
-        return Err(if stop() { "annulé".into() } else { "impossible de mettre la fenêtre au premier plan".to_string() });
+        return Err(if stop() { i18n::t(Msg::ErrCancelled).to_string() } else { i18n::t(Msg::ErrForeground).to_string() });
     }
     let (l, tp, r, b) = win_rect(h);
     let (w, hgt) = (r - l, b - tp);
@@ -315,7 +368,7 @@ pub fn click_target(t: &Target, stop: &dyn Fn() -> bool) -> Result<(), String> {
         (l + (t.fx * w as f64) as i32, tp + (t.fy * hgt as f64) as i32)
     };
     if root_at(x, y) != h {
-        return Err("la zone cible est masquée par une autre fenêtre".into());
+        return Err(i18n::t(Msg::ErrCovered).to_string());
     }
     mouse_click(x, y)?;
     sleep(Duration::from_millis(150));

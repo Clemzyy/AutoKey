@@ -8,6 +8,7 @@ use chrono::{DateTime, Local};
 use eframe::egui;
 
 use crate::engine::{self, Target};
+use crate::i18n::{self, tf, Msg};
 use crate::model::{now_secs, Item, Job};
 
 /// La fenêtre cible est préparée (restaurée, mise au premier plan, clic dans la zone) un peu avant l'heure,
@@ -44,7 +45,7 @@ impl Shared {
             running: AtomicBool::new(false),
             minimize: AtomicBool::new(false),
             restore: AtomicBool::new(false),
-            status: Mutex::new(("Arrêt d'urgence : Ctrl + Alt + Échap".into(), Kind::Info)),
+            status: Mutex::new((i18n::t(Msg::EmergencyStop).into(), Kind::Info)),
             picked: Mutex::new(None),
             picking: AtomicBool::new(false),
         })
@@ -79,17 +80,17 @@ impl Shared {
     }
 }
 
-/// « 83210 s » -> « 23 h 06 min 50 s ».
+/// « 83210 s » -> « 23 h 06 min 50 s » (dans la langue courante).
 fn fmt_left(left: f64) -> String {
     let t = left.ceil() as u64;
     if left >= 3600.0 {
-        format!("{} h {:02} min {:02} s", t / 3600, t % 3600 / 60, t % 60)
+        tf(Msg::CountdownHMS, &[&(t / 3600), &format!("{:02}", t % 3600 / 60), &format!("{:02}", t % 60)])
     } else if left >= 60.0 {
-        format!("{} min {:02} s", t / 60, t % 60)
+        tf(Msg::CountdownMS, &[&(t / 60), &format!("{:02}", t % 60)])
     } else if left >= 10.0 {
-        format!("{t} s")
+        tf(Msg::CountdownS, &[&t])
     } else {
-        format!("{left:.1} s")
+        tf(Msg::CountdownS, &[&format!("{left:.1}")])
     }
 }
 
@@ -108,7 +109,7 @@ fn wait_until(sh: &Shared, ctx: &egui::Context, ts: f64, name: &str) -> bool {
         // loin de l'heure, inutile de redessiner l'interface 5 fois par seconde
         let every = if left > 120.0 { 1000 } else { 200 };
         if last_status.elapsed() >= Duration::from_millis(every) {
-            sh.set_status(ctx, format!("{name} – dans {}", fmt_left(left)), Kind::Wait);
+            sh.set_status(ctx, tf(Msg::WaitStatus, &[&name, &fmt_left(left)]), Kind::Wait);
             last_status = Instant::now();
         }
         if left > 0.1 {
@@ -131,6 +132,7 @@ fn press_once(job: &Job, sh: &Shared) -> bool {
         }
         match item {
             Item::Char(c) => ok &= engine::send_char(*c),
+            Item::Press(c) => ok &= engine::press_char(*c),
             Item::Key(scan, ext) => {
                 ok &= engine::send_scan(*scan, *ext, false);
                 sleep(Duration::from_millis(20));
@@ -162,7 +164,7 @@ fn run_job(job: &Job, sh: &Shared, ctx: &egui::Context, name: &str) -> Option<St
                 break;
             }
             if !press_once(job, sh) {
-                err = Some("touches refusées par Windows (la fenêtre active est peut-être lancée en administrateur)".into());
+                err = Some(i18n::t(Msg::KeysRefused).to_string());
                 break;
             }
             if job.gap > 0.0 && i + 1 < job.n && !sh.nap(Duration::from_secs_f64(job.gap)) {
@@ -193,7 +195,7 @@ pub fn spawn_jobs(jobs: Vec<Job>, label: Option<String>, sh: Arc<Shared>, ctx: e
                 ctx.request_repaint();
             }
             let when: DateTime<Local> = DateTime::from_timestamp(job.ts as i64, 0).unwrap_or_default().into();
-            let name = label.clone().unwrap_or_else(|| format!("Action {}/{} à {}", k + 1, total, when.format("%H:%M:%S")));
+            let name = label.clone().unwrap_or_else(|| tf(Msg::ActionName, &[&(k + 1), &total, &when.format("%H:%M:%S")]));
             // on attend le moment de préparer la fenêtre cible (ou directement l'heure s'il n'y a pas de cible)
             let prep_at = if job.target.is_some() { job.ts - PREP_LEAD } else { job.ts };
             if !wait_until(&sh, &ctx, prep_at, &name) {
@@ -201,11 +203,11 @@ pub fn spawn_jobs(jobs: Vec<Job>, label: Option<String>, sh: Arc<Shared>, ctx: e
             }
             let late = now_secs() - job.ts;
             if late > MAX_LATE {
-                errors.push(format!("action {} ignorée : en retard de {late:.0} s", k + 1));
+                errors.push(tf(Msg::Late, &[&(k + 1), &format!("{late:.0}")]));
                 continue;
             }
             match run_job(job, &sh, &ctx, &name) {
-                Some(e) => errors.push(format!("action {} : {e}", k + 1)),
+                Some(e) => errors.push(tf(Msg::ActionErr, &[&(k + 1), &e])),
                 None if !sh.stop() => done += 1,
                 None => {}
             }
@@ -214,12 +216,12 @@ pub fn spawn_jobs(jobs: Vec<Job>, label: Option<String>, sh: Arc<Shared>, ctx: e
             }
         }
         let (msg, kind) = if sh.stop() {
-            ("Annulé (arrêt d'urgence ou bouton).".to_string(), Kind::Warn)
+            (i18n::t(Msg::Cancelled).to_string(), Kind::Warn)
         } else if !errors.is_empty() {
-            (format!("⚠ {done}/{total} envoyée(s) – {}", errors.join(" ; ")), Kind::Err)
+            (tf(Msg::PartialErr, &[&done, &total, &errors.join(" ; ")]), Kind::Err)
         } else {
-            let extra = if total > 1 { format!(" ({done} actions)") } else { String::new() };
-            (format!("✔ Terminé à {}{extra}", Local::now().format("%H:%M:%S%.3f")), Kind::Ok)
+            let at = Local::now().format("%H:%M:%S%.3f").to_string();
+            (if total > 1 { tf(Msg::DoneMany, &[&at, &done]) } else { tf(Msg::Done, &[&at]) }, Kind::Ok)
         };
         engine::keep_awake(false);
         sh.running.store(false, Ordering::SeqCst);
@@ -237,7 +239,7 @@ pub fn spawn_pick(sh: Arc<Shared>, ctx: egui::Context) {
     sh.picking.store(true, Ordering::SeqCst);
     *sh.picked.lock().unwrap() = None;
     std::thread::spawn(move || {
-        let banner = engine::Banner::show("Clique dans la zone de saisie à cibler   (Échap = annuler)");
+        let banner = engine::Banner::show(i18n::t(Msg::PickBanner));
         let start = Instant::now();
         let own = engine::own_pid();
         let result = loop {

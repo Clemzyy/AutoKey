@@ -6,7 +6,8 @@ use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, NaiveD
 use serde_json::{json, Value};
 
 use crate::engine::Target;
-use crate::keys;
+use crate::i18n::{self, tf, Msg};
+use crate::keys::{self, Modk, Tok};
 
 /// Une action planifiée : quand, quoi, où, et les 3 options.
 #[derive(Clone, Debug, PartialEq)]
@@ -54,8 +55,12 @@ impl Default for Action {
 
 #[derive(Clone, Debug)]
 pub enum Item {
+    /// Caractère tapé tel quel (Unicode) : accents, symboles, toute écriture.
     Char(char),
+    /// Touche nommée (Entrée, Tab, F5…) : position physique fixe.
     Key(u16, bool),
+    /// Touche d'un caractère (`[a]`) : traduite selon la disposition active de Windows, donc utilisable avec Ctrl, Alt…
+    Press(char),
 }
 
 /// Action prête à être exécutée par le thread d'envoi.
@@ -88,8 +93,12 @@ pub fn parse(text: &str) -> Result<Vec<Item>, String> {
             if let Some(len) = end.filter(|&len| len > 0 && !chars[i + 1..i + 1 + len].contains(&'[')) {
                 let name: String = chars[i + 1..i + 1 + len].iter().collect();
                 match keys::lookup(&name) {
-                    Some((scan, ext)) => out.push(Item::Key(scan, ext)),
-                    None => return Err(format!("Touche inconnue : [{name}]")),
+                    Some(Tok::Named(n)) => {
+                        let (scan, ext) = n.scan();
+                        out.push(Item::Key(scan, ext));
+                    }
+                    Some(Tok::Char(c)) => out.push(Item::Press(c)),
+                    _ => return Err(tf(Msg::UnknownKey, &[&name])),
                 }
                 i += len + 2;
                 continue;
@@ -115,19 +124,19 @@ fn local_from_naive(naive: NaiveDateTime) -> Option<DateTime<Local>> {
 pub fn when(a: &Action) -> Result<f64, String> {
     let now = Local::now();
     let date = if a.use_date {
-        NaiveDate::parse_from_str(a.date.trim(), "%d/%m/%Y").map_err(|_| "date invalide (format JJ/MM/AAAA)".to_string())?
+        NaiveDate::parse_from_str(a.date.trim(), "%d/%m/%Y").or_else(|_| NaiveDate::parse_from_str(a.date.trim(), "%Y-%m-%d")).map_err(|_| i18n::t(Msg::DateFormatInvalid).to_string())?
     } else {
         now.date_naive()
     };
-    let naive = date.and_hms_milli_opt(a.h, a.m, a.s, a.ms).ok_or_else(|| "heure invalide".to_string())?;
-    let mut t = local_from_naive(naive).ok_or_else(|| "heure locale introuvable".to_string())?;
+    let naive = date.and_hms_milli_opt(a.h, a.m, a.s, a.ms).ok_or_else(|| i18n::t(Msg::TimeInvalid).to_string())?;
+    let mut t = local_from_naive(naive).ok_or_else(|| i18n::t(Msg::LocalTimeNotFound).to_string())?;
     if t <= now {
         if a.use_date {
-            return Err("Cette date/heure est déjà passée.".into());
+            return Err(i18n::t(Msg::DatePassed).to_string());
         }
-        let tomorrow = date.succ_opt().ok_or_else(|| "date invalide".to_string())?;
-        t = local_from_naive(tomorrow.and_hms_milli_opt(a.h, a.m, a.s, a.ms).ok_or_else(|| "heure invalide".to_string())?)
-            .ok_or_else(|| "heure locale introuvable".to_string())?;
+        let tomorrow = date.succ_opt().ok_or_else(|| i18n::t(Msg::DateFormatInvalid).to_string())?;
+        t = local_from_naive(tomorrow.and_hms_milli_opt(a.h, a.m, a.s, a.ms).ok_or_else(|| i18n::t(Msg::TimeInvalid).to_string())?)
+            .ok_or_else(|| i18n::t(Msg::LocalTimeNotFound).to_string())?;
     }
     Ok(t.timestamp() as f64 + t.timestamp_subsec_millis() as f64 / 1000.0)
 }
@@ -140,7 +149,7 @@ pub fn make_job(a: &Action, ts: Option<f64>) -> Result<Job, String> {
             None => when(a)?,
         },
         items: parse(&a.text)?,
-        mods: a.mods.iter().filter_map(|m| keys::mod_key(m)).collect(),
+        mods: a.mods.iter().filter_map(|m| Modk::parse(m)).map(Modk::scan).collect(),
         n: if a.repeat { a.rep.max(1) } else { 1 },
         gap: if a.repeat { a.gap as f64 / 1000.0 } else { 0.0 },
         target: if a.use_target { a.target.clone() } else { None },
@@ -207,7 +216,7 @@ pub fn action_from_json(v: &Value, base: &Action) -> Action {
         mods: v
             .get("mods")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).filter(|m| keys::is_mod(m)).collect())
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).filter_map(|m| Modk::parse(&m).map(|k| k.canonical().to_string())).collect())
             .unwrap_or_default(),
         repeat: b("repeat", false),
         rep: num(v.get("rep"), 10).clamp(1, 9999),
@@ -223,6 +232,8 @@ pub struct Saved {
     pub editor: Action,
     pub list_mode: bool,
     pub actions: Vec<Action>,
+    pub lang: Option<String>,   // code de langue choisi par l'utilisateur (sinon : langue de Windows)
+    pub layout: Option<String>, // identifiant de disposition choisi (sinon : détectée)
 }
 
 /// Écrit les réglages de façon atomique : fichier temporaire puis renommage, pour ne jamais laisser un JSON tronqué.
@@ -232,6 +243,8 @@ pub fn save(s: &Saved) {
     v["rep"] = json!(s.editor.rep.to_string());
     v["gap"] = json!(s.editor.gap.to_string());
     v["list_mode"] = json!(s.list_mode);
+    v["lang"] = json!(s.lang);
+    v["layout"] = json!(s.layout);
     v["actions"] = Value::Array(s.actions.iter().map(action_to_json).collect());
     let path = settings_path();
     if let Some(dir) = path.parent() {
@@ -247,7 +260,7 @@ pub fn save(s: &Saved) {
 
 pub fn load() -> Saved {
     let base = Action::default();
-    let empty = |base: Action| Saved { editor: base, list_mode: false, actions: vec![] };
+    let empty = |base: Action| Saved { editor: base, list_mode: false, actions: vec![], lang: None, layout: None };
     let path = settings_path();
     let Ok(text) = std::fs::read_to_string(&path) else {
         return empty(base);
@@ -273,5 +286,6 @@ pub fn load() -> Saved {
         .and_then(Value::as_array)
         .map(|a| a.iter().map(|x| action_from_json(x, &base)).collect())
         .unwrap_or_default();
-    Saved { editor, list_mode: v.get("list_mode").and_then(Value::as_bool).unwrap_or(false), actions }
+    let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    Saved { editor, list_mode: v.get("list_mode").and_then(Value::as_bool).unwrap_or(false), actions, lang: text("lang"), layout: text("layout") }
 }

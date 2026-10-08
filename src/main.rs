@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! AutoKey - tape des touches ou du texte à une heure précise, dans la fenêtre de ton choix (Windows).
 mod engine;
+mod i18n;
 mod keys;
 mod model;
 mod ui;
@@ -14,7 +15,7 @@ fn load_icon() -> egui::IconData {
     egui::IconData { rgba: img.into_raw(), width, height }
 }
 
-const TITLE: &str = "AutoKey – touche à heure précise";
+const TITLE: &str = "AutoKey";
 
 fn main() -> eframe::Result {
     // une seule instance (sauf pour les tests automatiques, qui utilisent leurs propres réglages)

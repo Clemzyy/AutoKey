@@ -44,7 +44,7 @@ TMP = tempfile.mkdtemp(prefix="akui_")
 SETTINGS = os.path.join(TMP, "settings.json")
 STATE = os.path.join(TMP, "state.json")
 SHOTS = os.path.join(TMP, "shots"); os.makedirs(SHOTS)
-TITLE = "AutoKey – touche à heure précise"
+TITLE = "AutoKey"
 results = []
 
 
@@ -58,7 +58,7 @@ def start(preset=None):
         if os.path.exists(f): os.remove(f)
     if preset is not None:
         json.dump(preset, open(SETTINGS, "w", encoding="utf-8"))
-    env = dict(os.environ, AUTOKEY_SETTINGS=SETTINGS, AUTOKEY_STATE=STATE, AUTOKEY_SHOTS=SHOTS)
+    env = dict(os.environ, AUTOKEY_SETTINGS=SETTINGS, AUTOKEY_STATE=STATE, AUTOKEY_SHOTS=SHOTS, AUTOKEY_LANG="fr", AUTOKEY_LAYOUT="azerty-fr")
     p = subprocess.Popen([EXE], env=env)
     for _ in range(80):
         if os.path.exists(STATE): break
@@ -174,14 +174,14 @@ s = state()
 check("démarrage : état initial", s["text"] == "" and not s["list_mode"] and s["status"].startswith("Arrêt d'urgence"), s["status"])
 focus()
 
-click("touche:A"); check("clavier : clic sur A -> [A]", wait(lambda s: s["text"] == "[A]"), state()["text"])
-click("touche:Entrée"); check("clavier : clic sur Entrée -> [A][Entrée]", wait(lambda s: s["text"] == "[A][Entrée]"), state()["text"])
-click("touche:Ctrl"); check("clavier : Ctrl maintenu", wait(lambda s: s["mods"] == ["Ctrl"]), state()["mods"])
+click("touche:A"); check("clavier : clic sur A -> [a]", wait(lambda s: s["text"] == "[a]"), state()["text"])
+click("touche:Entrée"); check("clavier : clic sur Entrée -> [a][Enter]", wait(lambda s: s["text"] == "[a][Enter]"), state()["text"])
+click("touche:Ctrl"); check("clavier : Ctrl maintenu", wait(lambda s: s["mods"] == ["ctrl"]), state()["mods"])
 click("touche:Ctrl"); check("clavier : Ctrl relâché", wait(lambda s: s["mods"] == []), state()["mods"])
 
 x, y = pos("texte", 0.97, 0.5); mouse(x, y); typ("xy"); key(0x25)   # curseur entre x et y
-check("texte : frappe au clavier", wait(lambda s: s["text"] == "[A][Entrée]xy"), state()["text"])
-click("touche:Q"); check("texte : insertion à la position du curseur", wait(lambda s: s["text"] == "[A][Entrée]x[Q]y"), state()["text"])
+check("texte : frappe au clavier", wait(lambda s: s["text"] == "[a][Enter]xy"), state()["text"])
+click("touche:Q"); check("texte : insertion à la position du curseur", wait(lambda s: s["text"] == "[a][Enter]x[q]y"), state()["text"])
 
 click("Effacer"); check("bouton Effacer", wait(lambda s: s["text"] == "" and s["mods"] == []), state()["text"])
 
@@ -199,6 +199,21 @@ click("Répéter"); check("interrupteur Répéter désactivé", wait(lambda s: n
 # heure : double-clic dans le champ, saisie, Entrée
 focus(); mouse(*pos("num:h"), dbl=True); key(0x41, ctrl=True); typ("07"); key(0x0D)
 check("champ heure : saisie de 07", wait(lambda s: s["h"] == 7), state()["h"])
+
+# --- dispositions de clavier et langues ---
+click("layout"); check("clavier : liste des dispositions ouverte", wait(lambda s: any(k.startswith("layout:") for k in s["widgets"])))
+click("layout:qwertz-de"); check("clavier : passage en QWERTZ (DE)", wait(lambda s: s["layout"] == "qwertz-de"), state()["layout"])
+zy = (find("touche:Z")[1], find("touche:Y")[1])
+check("QWERTZ : la touche Z est au-dessus de Y (rangée des lettres du haut)", zy[0] < zy[1], zy)
+click("touche:Z"); check("QWERTZ : un clic sur Z insère [z]", wait(lambda s: s["text"].endswith("[z]")), state()["text"])
+click("Effacer")
+click("layout"); click("layout:azerty-fr"); check("clavier : retour en AZERTY (FR)", wait(lambda s: s["layout"] == "azerty-fr"))
+click("lang"); click("lang:en"); check("langue : passage à l'anglais", wait(lambda s: s["lang"] == "en"), state()["lang"])
+check("anglais : les boutons sont traduits", any(k.endswith("Arm") for k in state()["widgets"]) and not any("Armer" in k for k in state()["widgets"]))
+for code in ("ar", "zh", "ru", "es"):
+    click("lang"); click("lang:" + code)
+    check(f"langue : {code} sans plantage", wait(lambda s, c=code: s["lang"] == c), state()["lang"])
+click("lang"); click("lang:fr"); check("langue : retour au français", wait(lambda s: s["lang"] == "fr"))
 
 # --- menu Options ---
 click("Options"); check("Options : menu ouvert", wait(lambda s: s["opt_open"]))
@@ -278,17 +293,17 @@ ch = ctypes.c_void_p(u.FindWindowW(None, "CIBLE_UI")); rc = w.RECT(); u.GetWindo
 cx, cy = map(int, open(pos_file).read().split(","))
 target = dict(exe=os.path.basename(sys.executable).lower(), cls="TkTopLevel", title="CIBLE_UI", dx=cx - rc.left, dy=cy - rc.top,
               w=rc.right - rc.left, h=rc.bottom - rc.top, fx=(cx - rc.left) / (rc.right - rc.left), fy=(cy - rc.top) / (rc.bottom - rc.top))
-preset = {"text": "t1[F12]", "mods": [], "repeat": False, "rep": "10", "gap": "100", "minim": False, "use_date": False, "date": "01/01/2030",
+preset = {"text": "t1[F12][a][é]", "mods": [], "repeat": False, "rep": "10", "gap": "100", "minim": False, "use_date": False, "date": "01/01/2030",
           "use_target": True, "back": True, "target": target, "list_mode": False, "actions": []}
 app = start(preset)
-s = state(); check("réglages chargés (cible mémorisée)", s["target"] == "python.exe" and s["text"] == "t1[F12]", s["target"])
+s = state(); check("réglages chargés (cible mémorisée)", s["target"] == "python.exe" and s["text"] == "t1[F12][a][é]", s["target"])
 click("Test (3 s)")
 check("Test : l'envoi démarre", wait(lambda s: s["running"], 3))
 check("Test : terminé avec succès", wait(lambda s: not s["running"] and s["status"].startswith("✔"), 12), state()["status"])
 if app.poll() is None: app.terminate()
 child.wait(timeout=40)
 got = open(out_file, encoding="cp1252").read()
-check("Test : le texte est arrivé dans la fenêtre cible", got == "t1", repr(got))
+check("Test : le texte est arrivé dans la fenêtre cible (texte + touches [a] [é])", got == "t1aé", repr(got))
 
 # ============================ bilan ============================
 ok = sum(1 for _, o, _ in results if o)
