@@ -63,7 +63,16 @@ def start(preset=None):
     for _ in range(80):
         if os.path.exists(STATE): break
         time.sleep(0.1)
-    time.sleep(1.5)
+    # attend que la fenêtre soit stable (l'application se réajuste à l'ouverture) avant de cliquer
+    last, since = None, time.time()
+    while time.time() - since < 1.2 and time.time() < since + 20:
+        try:
+            cur = (state()["widgets"].get("touche:A"), tuple(state()["widgets"].get("Armer", state()["widgets"].get("▶  Armer", [])) or []))
+        except Exception:
+            cur = None
+        if cur != last:
+            last, since = cur, time.time()
+        time.sleep(0.15)
     return p
 
 

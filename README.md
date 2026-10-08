@@ -9,6 +9,11 @@ qui démarre instantanément et dont l'interface reste fluide quand on redimensi
 
 > La première version, écrite en Python, reste disponible dans l'historique du dépôt : tag [`v1.0-python`](../../tree/v1.0-python).
 
+## Télécharger
+
+➡️ **[AutoKey.exe — dernière version](../../releases/latest)** (Windows 10/11, ≈ 4,4 Mo, sans installation).
+Windows SmartScreen peut avertir au premier lancement, car le fichier n'est pas signé : *Informations complémentaires* → *Exécuter quand même*.
+
 ## Fonctions
 
 - Clavier **AZERTY** complet à l'écran : clique sur une touche pour l'ajouter. Ctrl, Alt, Maj et Alt Gr se maintiennent pendant l'envoi.

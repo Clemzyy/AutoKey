@@ -2,3 +2,4 @@
 # chemin de compilation propre à ce PC (hors OneDrive)
 /.cargo/
 Cargo.lock.bak
+/dist/
