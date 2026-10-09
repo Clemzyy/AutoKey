@@ -69,7 +69,7 @@ jobs:
           tar -C dist -czf dist/AutoKey-${{ matrix.name }}.tar.gz AutoKey
           rm -r dist/AutoKey
 
-      - name: Emballer (macOS : application universelle Intel + Apple Silicon)
+      - name: "Emballer (macOS, application universelle Intel + Apple Silicon)"
         if: matrix.name == 'macos'
         run: |
           VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
