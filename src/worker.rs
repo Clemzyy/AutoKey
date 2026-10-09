@@ -38,6 +38,14 @@ pub struct Shared {
     pub picking: AtomicBool,
 }
 
+/// Message affiché quand rien ne se passe : le rappel de l'arrêt d'urgence, ou l'avertissement Wayland sous Linux.
+pub fn idle_status() -> (String, Kind) {
+    match engine::session_warning() {
+        Some(m) => (i18n::t(m).into(), Kind::Warn),
+        None => (i18n::t(Msg::EmergencyStop).into(), Kind::Info),
+    }
+}
+
 impl Shared {
     pub fn new() -> Arc<Self> {
         Arc::new(Shared {
@@ -45,7 +53,7 @@ impl Shared {
             running: AtomicBool::new(false),
             minimize: AtomicBool::new(false),
             restore: AtomicBool::new(false),
-            status: Mutex::new((i18n::t(Msg::EmergencyStop).into(), Kind::Info)),
+            status: Mutex::new(idle_status()),
             picked: Mutex::new(None),
             picking: AtomicBool::new(false),
         })

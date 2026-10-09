@@ -231,6 +231,7 @@ pub struct KbLayout {
     /// Rangées (sans les touches de contrôle) : chiffres, 1re, 2e et 3e rangée de lettres, labels séparés par des espaces.
     pub rows: [&'static str; 4],
     /// Identifiants de langue Windows (octet de poids faible) qui utilisent cette disposition.
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub langids: &'static [u16],
 }
 
@@ -267,18 +268,51 @@ pub fn by_id(id: &str) -> &'static KbLayout {
     LAYOUTS.iter().find(|l| l.id == id).unwrap_or(&LAYOUTS[2])
 }
 
-/// Disposition correspondant à la langue de saisie active de Windows (le chinois, le japonais… utilisent le QWERTY US).
+/// Disposition correspondant à la langue de saisie active du système (le chinois, le japonais… utilisent le QWERTY US).
 pub fn detect() -> &'static KbLayout {
     if let Some(l) = std::env::var("AUTOKEY_LAYOUT").ok().and_then(|id| LAYOUTS.iter().find(|l| l.id == id)) {
         return l;
     }
+    system_layout().unwrap_or(&LAYOUTS[2])
+}
+
+#[cfg(windows)]
+fn system_layout() -> Option<&'static KbLayout> {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyboardLayout;
     let langid = (unsafe { GetKeyboardLayout(0) } as usize & 0xFFFF) as u16;
     LAYOUTS
         .iter()
         .find(|l| l.langids.contains(&langid))
         .or_else(|| if langid & 0x3FF == 0x01 { LAYOUTS.iter().find(|l| l.id == "ar") } else { None })
-        .unwrap_or(&LAYOUTS[2])
+}
+
+/// Linux : première disposition XKB déclarée (« fr », « us,ru »…) et sa variante (« dvorak », « colemak »…).
+#[cfg(not(windows))]
+fn system_layout() -> Option<&'static KbLayout> {
+    let (layout, variant) = crate::engine::xkb_layout()?;
+    let first = layout.split(',').next()?.trim().to_lowercase();
+    let var = variant.split(',').next().unwrap_or("").trim().to_lowercase();
+    let id = if var.starts_with("dvorak") {
+        "dvorak"
+    } else if var.starts_with("colemak") {
+        "colemak"
+    } else {
+        match first.as_str() {
+            "fr" => "azerty-fr",
+            "be" => "azerty-be",
+            "us" | "cn" | "jp" | "kr" => "qwerty-us",
+            "gb" => "qwerty-uk",
+            "de" | "at" => "qwertz-de",
+            "ch" => "qwertz-ch",
+            "es" | "latam" => "qwerty-es",
+            "it" => "qwerty-it",
+            "br" | "pt" => "qwerty-br",
+            "ru" | "ua" | "by" | "bg" => "ru",
+            "ara" | "ar" => "ar",
+            _ => return None,
+        }
+    };
+    LAYOUTS.iter().find(|l| l.id == id)
 }
 
 fn key(label: &str, tok: Tok, w: f32) -> KeyDef {

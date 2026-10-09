@@ -1,0 +1,134 @@
+name: Build
+
+# Compile AutoKey pour Windows, Linux et macOS à chaque envoi sur main et à chaque étiquette de version (v*).
+# Pour une étiquette, les fichiers sont ajoutés à la publication GitHub correspondante.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x86_64, os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { name: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc }
+          - { name: linux-x86_64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { name: linux-aarch64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+          - { name: macos, os: macos-latest, target: aarch64-apple-darwin }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}${{ matrix.name == 'macos' && ',x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+
+      - name: Dépendances Linux
+        if: startsWith(matrix.name, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libxkbcommon-dev libgl1-mesa-dev libwayland-dev
+
+      - name: Compiler
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Compiler aussi pour Mac Intel
+        if: matrix.name == 'macos'
+        run: cargo build --release --locked --target x86_64-apple-darwin
+
+      - name: Emballer (Windows)
+        if: startsWith(matrix.name, 'windows')
+        shell: bash
+        run: |
+          mkdir dist
+          if [ "${{ matrix.name }}" = "windows-x86_64" ]; then OUT=AutoKey.exe; else OUT=AutoKey-windows-arm64.exe; fi
+          cp "target/${{ matrix.target }}/release/autokey.exe" "dist/$OUT"
+
+      - name: Emballer (Linux)
+        if: startsWith(matrix.name, 'linux')
+        run: |
+          mkdir -p dist/AutoKey
+          cp target/${{ matrix.target }}/release/autokey LICENSE README.md README.fr.md dist/AutoKey/
+          cp assets/autokey.png dist/AutoKey/
+          tar -C dist -czf dist/AutoKey-${{ matrix.name }}.tar.gz AutoKey
+          rm -r dist/AutoKey
+
+      - name: Emballer (macOS : application universelle Intel + Apple Silicon)
+        if: matrix.name == 'macos'
+        run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          APP=AutoKey.app
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" dist
+          lipo -create -output "$APP/Contents/MacOS/AutoKey" \
+            target/aarch64-apple-darwin/release/autokey target/x86_64-apple-darwin/release/autokey
+          mkdir icon.iconset
+          for s in 16 32 128 256 512; do
+            sips -z $s $s assets/autokey.png --out icon.iconset/icon_${s}x${s}.png
+            sips -z $((s*2)) $((s*2)) assets/autokey.png --out icon.iconset/icon_${s}x${s}@2x.png
+          done
+          iconutil -c icns icon.iconset -o "$APP/Contents/Resources/AutoKey.icns"
+          cat > "$APP/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>AutoKey</string>
+            <key>CFBundleDisplayName</key><string>AutoKey</string>
+            <key>CFBundleIdentifier</key><string>io.github.clemzyy.autokey</string>
+            <key>CFBundleExecutable</key><string>AutoKey</string>
+            <key>CFBundleIconFile</key><string>AutoKey</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          EOF
+          codesign --force --deep --sign - "$APP"
+          ditto -c -k --keepParent "$APP" dist/AutoKey-macos.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoKey-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publier les fichiers
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Empreintes et envoi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "AutoKey $TAG" --notes "Voir le README pour les détails."
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber *

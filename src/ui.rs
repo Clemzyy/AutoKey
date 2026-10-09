@@ -73,31 +73,81 @@ fn fid_m(size: f32) -> FontId {
     FontId::new(size, FontFamily::Monospace)
 }
 
-/// Polices système de Windows : egui n'embarque aucune police (exécutable plus léger de ~1,4 Mo).
-/// Segoe UI couvre le latin, le cyrillique et l'arabe ; Microsoft YaHei n'est chargée que si le chinois est utilisé.
+/// Chemin (et indice dans la collection) d'une police : fichier de Windows, chemin absolu, ou motif fontconfig « fc:… ».
+#[cfg(windows)]
+fn resolve(file: &str) -> Option<(std::path::PathBuf, u32)> {
+    Some((std::path::Path::new(r"C:\Windows\Fonts").join(file), 0))
+}
+
+#[cfg(not(windows))]
+fn resolve(file: &str) -> Option<(std::path::PathBuf, u32)> {
+    let Some(pattern) = file.strip_prefix("fc:") else {
+        return Some((std::path::PathBuf::from(file), 0));
+    };
+    // demande à fontconfig la police qui correspond (« sans-serif:bold », « :lang=zh-cn »…)
+    let out = std::process::Command::new("fc-match").args(["-f", "%{file}\n%{index}", pattern]).output().ok()?;
+    let text = String::from_utf8(out.stdout).ok()?;
+    let mut lines = text.lines();
+    let path = lines.next()?.trim();
+    (!path.is_empty()).then(|| (std::path::PathBuf::from(path), lines.next().and_then(|i| i.trim().parse().ok()).unwrap_or(0)))
+}
+
+#[cfg(windows)]
+mod sysfonts {
+    pub const REGULAR: &[&str] = &["segoeui.ttf", "arial.ttf"];
+    pub const BOLD: &[&str] = &["segoeuib.ttf", "arialbd.ttf"];
+    pub const SYMBOLS: &[&str] = &["seguisym.ttf"];
+    pub const MONO: &[&str] = &["consola.ttf", "cour.ttf"];
+    pub const HAN: &[&str] = &["msyh.ttc", "simsun.ttc"];
+    pub const HAN_BOLD: &[&str] = &["msyhbd.ttc"];
+}
+
+#[cfg(target_os = "linux")]
+mod sysfonts {
+    pub const REGULAR: &[&str] = &["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "fc:sans-serif"];
+    pub const BOLD: &[&str] = &["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", "fc:sans-serif:bold"];
+    pub const SYMBOLS: &[&str] = &["/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf", "fc:symbols"];
+    pub const MONO: &[&str] = &["/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf", "fc:monospace"];
+    pub const HAN: &[&str] = &["fc::lang=zh-cn"];
+    pub const HAN_BOLD: &[&str] = &["fc::lang=zh-cn:bold"];
+}
+
+#[cfg(target_os = "macos")]
+mod sysfonts {
+    // Arial Unicode couvre le latin, le cyrillique et l'arabe ; Apple Symbols complète les pictogrammes.
+    pub const REGULAR: &[&str] = &["/System/Library/Fonts/Supplemental/Arial Unicode.ttf", "/Library/Fonts/Arial Unicode.ttf", "/System/Library/Fonts/Helvetica.ttc"];
+    pub const BOLD: &[&str] = &["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Helvetica.ttc"];
+    pub const SYMBOLS: &[&str] = &["/System/Library/Fonts/Apple Symbols.ttf"];
+    pub const MONO: &[&str] = &["/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/Supplemental/Courier New.ttf"];
+    pub const HAN: &[&str] = &["/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/STHeiti Medium.ttc"];
+    pub const HAN_BOLD: &[&str] = &["/System/Library/Fonts/PingFang.ttc"];
+}
+
+/// Polices système : egui n'embarque aucune police (exécutable plus léger de ~1,4 Mo).
+/// La police principale couvre le latin, le cyrillique et l'arabe ; la police chinoise n'est chargée que si le chinois est utilisé.
 fn setup_fonts(ctx: &egui::Context, cjk: bool) {
     let mut fonts = FontDefinitions::default();
-    let dir = std::path::Path::new(r"C:\Windows\Fonts");
-    let mut add = |key: &str, file: &str| -> bool {
-        match std::fs::read(dir.join(file)) {
-            Ok(bytes) => {
-                fonts.font_data.insert(key.to_string(), Arc::new(FontData::from_owned(bytes)));
-                true
+    let mut add = |key: &str, files: &[&str]| -> bool {
+        for (path, index) in files.iter().filter_map(|f| resolve(f)) {
+            if let Ok(bytes) = std::fs::read(&path) {
+                let mut data = FontData::from_owned(bytes);
+                data.index = index;
+                fonts.font_data.insert(key.to_string(), Arc::new(data));
+                return true;
             }
-            Err(_) => false,
         }
+        false
     };
-    // repli sur Arial / Courier New si Segoe UI ou Consolas manquent
-    let regular = add("segoeui", "segoeui.ttf") || add("segoeui", "arial.ttf");
-    let bold = add("segoeuib", "segoeuib.ttf") || add("segoeuib", "arialbd.ttf");
-    let sym = add("seguisym", "seguisym.ttf");
-    let mono = add("consola", "consola.ttf") || add("consola", "cour.ttf");
-    let han = cjk && (add("msyh", "msyh.ttc") || add("msyh", "simsun.ttc"));
-    let han_bold = han && add("msyhbd", "msyhbd.ttc");
+    let regular = add("regular", sysfonts::REGULAR);
+    let bold = add("bold", sysfonts::BOLD);
+    let sym = add("symbols", sysfonts::SYMBOLS);
+    let mono = add("mono", sysfonts::MONO);
+    let han = cjk && add("han", sysfonts::HAN);
+    let han_bold = han && add("han_bold", sysfonts::HAN_BOLD);
     let chain = |first: &[(&str, bool)]| -> Vec<String> { first.iter().filter(|(_, ok)| *ok).map(|(k, _)| k.to_string()).collect() };
-    fonts.families.insert(FontFamily::Proportional, chain(&[("segoeui", regular), ("seguisym", sym), ("msyh", han)]));
-    fonts.families.insert(bold_family(), chain(&[("segoeuib", bold), ("segoeui", regular), ("seguisym", sym), ("msyhbd", han_bold), ("msyh", han)]));
-    fonts.families.insert(FontFamily::Monospace, chain(&[("consola", mono), ("segoeui", regular), ("seguisym", sym), ("msyh", han)]));
+    fonts.families.insert(FontFamily::Proportional, chain(&[("regular", regular), ("symbols", sym), ("han", han)]));
+    fonts.families.insert(bold_family(), chain(&[("bold", bold), ("regular", regular), ("symbols", sym), ("han_bold", han_bold), ("han", han)]));
+    fonts.families.insert(FontFamily::Monospace, chain(&[("mono", mono), ("regular", regular), ("symbols", sym), ("han", han)]));
     ctx.set_fonts(fonts);
 }
 
@@ -553,8 +603,9 @@ impl App {
         }
         self.rows = keys::build(self.layout);
         let kind = self.sh.status.lock().unwrap().1;
-        if kind == Kind::Info && !self.running() {
-            self.sh.set_status(ctx, i18n::t(Msg::EmergencyStop), Kind::Info);
+        if (kind == Kind::Info || engine::session_warning().is_some()) && !self.running() {
+            let (text, kind) = worker::idle_status();
+            self.sh.set_status(ctx, text, kind);
         }
         self.fit = 4;
         self.persist();

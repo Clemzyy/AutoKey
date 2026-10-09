@@ -81,8 +81,12 @@ def hwnd():
 
 
 def focus():
-    h = hwnd(); u.ShowWindow(h, 9); u.SetForegroundWindow(h); time.sleep(0.25)
-    return u.GetForegroundWindow() == h.value
+    h = hwnd(); u.ShowWindow(h, 9)
+    for _ in range(3):
+        u.keybd_event(0x12, 0, 0, 0); u.keybd_event(0x12, 0, 2, 0)   # touche Alt « neutre » : lève le blocage du premier plan
+        u.SetForegroundWindow(h); time.sleep(0.25)
+        if u.GetForegroundWindow() == h.value: return True
+    return False
 
 
 def state():

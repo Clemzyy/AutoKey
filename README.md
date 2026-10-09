@@ -6,13 +6,20 @@
 
 ![AutoKey](docs/screenshot.png)
 
-AutoKey is a small Windows utility written in Rust: a single `.exe` of about 4.5 MB, no installation, instant startup, and an interface that stays smooth when you resize the window.
+AutoKey is a small utility written in Rust for **Windows, Linux and macOS**: a single executable of 4 to 6 MB, no installation, instant startup, and an interface that stays smooth when you resize the window.
 
 ## Download
 
-➡️ **[Download AutoKey.exe — latest release](../../releases/latest)** (Windows 10/11, 64-bit, no installation).
+➡️ **[Download the latest release](../../releases/latest)** — no installation, one file per system:
 
-The file is not code-signed, so Windows SmartScreen may warn you on first launch: click *More info* → *Run anyway*.
+| System | File | Status |
+|---|---|---|
+| Windows 10/11, 64-bit | `AutoKey.exe` | tested |
+| Linux, X11 session (x86-64 and ARM64) | `AutoKey-linux-x86_64.tar.gz`, `AutoKey-linux-aarch64.tar.gz` | tested on Ubuntu 22.04 (x86-64) |
+| macOS 11+ (Intel and Apple Silicon) | `AutoKey-macos.zip` | compiles, **not yet tested on a real Mac** |
+| Windows on ARM | `AutoKey-windows-arm64.exe` | compiles, not tested |
+
+None of the files is code-signed — see [Platform notes](#platform-notes) for the first launch.
 
 ## Features
 
@@ -23,10 +30,10 @@ The file is not code-signed, so Windows SmartScreen may warn you on first launch
 - **Target area**: click once in the input field you want; AutoKey finds that window again (even after a restart of the target application), restores it if minimized, brings it to the front, clicks the area, then types. It refuses to type if the window cannot be found or is covered, rather than typing at random.
 - **Three options per action**, shown as colored squares: 🟣 minimize AutoKey on start · 🟡 go to the target area before typing · 🟠 then return to where you were.
 - **Action list mode**: schedule several actions, each with its own time, text, target and options. They run in time order.
-- **Emergency stop**: `Ctrl + Alt + Esc`, honored at any moment, even when the window is minimized and during a long pause between repeats. **Sleep prevention** while an action is armed.
+- **Emergency stop**: `Ctrl + Alt + Esc` (`Ctrl + Option + Esc` on macOS), honored at any moment, even when the window is minimized and during a long pause between repeats. **Sleep prevention** while an action is armed.
 - **Precision**: with a target, the window is prepared 1.5 s before the time so the first key is sent at the exact time (measured: +1 to +2 ms).
 - **Safety**: an action more than 30 s late (PC asleep…) is skipped instead of being typed into the wrong window; single instance; settings written atomically; a clear message if Windows refuses the keys (target running as administrator).
-- Numeric fields: click to type, drag, or `Ctrl + mouse wheel`. Settings are remembered in `%APPDATA%\AutoKey\reglages.json`.
+- Numeric fields: click to type, drag, or `Ctrl + mouse wheel`. Settings are remembered in your user folder (`%APPDATA%\AutoKey\reglages.json` on Windows, `~/.config/AutoKey/` on Linux, `~/Library/Application Support/AutoKey/` on macOS).
 
 > Arabic is fully translated and correctly shaped and ordered right-to-left, but the window layout itself is not mirrored. The translations were written with care but not reviewed by native speakers: corrections are very welcome (see *Adding or fixing a language* below).
 
@@ -39,15 +46,29 @@ The file is not code-signed, so Windows SmartScreen may warn you on first launch
 
 Applications running **as administrator** ignore keys sent by a normal program: run AutoKey as administrator in that case.
 
+## Platform notes
+
+**Windows** — The file is not code-signed, so SmartScreen may warn you on first launch: *More info* → *Run anyway*.
+
+**Linux** — AutoKey drives other windows through the X11 protocol, so it works in any **X11 session** (and with the X11 windows of a Wayland session). A pure **Wayland** application cannot be reached: the system forbids a program from sending keys to another window. AutoKey then shows a warning; log in with an "…on Xorg" session instead (gear icon on the login screen). Extract the archive and run `./autokey`. Optional helpers: `xdg-open` (donate link), `systemd-inhibit` (sleep prevention), `fc-match` (font lookup). Tested on Ubuntu 22.04 (X11): typing, accents and non-Latin text, target picking and window focus, millisecond timing (measured −0.5 ms) and emergency stop.
+
+**macOS** — Unzip `AutoKey-macos.zip`. The app is not signed or notarized: on first launch, right-click it and choose *Open*. macOS asks you to allow it in *System Settings → Privacy & Security → Accessibility* (needed to send keys) and, to read the titles of other windows, *Screen Recording*. The emergency stop is `Ctrl + Option + Esc` and sleep prevention uses `caffeinate`. This port is built and checked by the continuous integration on GitHub but **has not been run on a real Mac yet**: please report what you find.
+
 ## Build from source
 
-Requirements: [Rust](https://rustup.rs) (MSVC toolchain) and the *Build Tools for Visual Studio* ("Desktop development with C++").
+Requirements: [Rust](https://rustup.rs), plus:
+
+- **Windows**: the MSVC toolchain and the *Build Tools for Visual Studio* ("Desktop development with C++").
+- **Linux**: `sudo apt install build-essential pkg-config libx11-dev libxkbcommon-dev libgl1-mesa-dev libwayland-dev` (or your distribution's equivalents).
+- **macOS**: the Xcode command line tools (`xcode-select --install`).
 
 ```bash
 cargo build --release
 ```
 
-The executable is produced in `target\release\autokey.exe` (or in the folder set by `.cargo/config.toml`, if present).
+The executable is produced in `target/release/autokey` (`autokey.exe` on Windows), or in the folder set by `.cargo/config.toml` if present.
+
+The system-specific code lives in `src/engine/` (`windows.rs`, `linux.rs`, `macos.rs`); everything else is shared.
 
 ### Adding or fixing a language
 
@@ -59,10 +80,16 @@ All texts are in one table, `src/i18n.rs`: each entry lists its six translations
 
 ## Automated tests
 
-`tests/ui_test.py` drives the real window (real mouse and keyboard) and checks 61 points: keyboard, layouts, languages, fields, options, list mode, cancellation, closing, typing into a target window.
+`tests/ui_test.py` (Windows) drives the real window (real mouse and keyboard) and checks 61 points: keyboard, layouts, languages, fields, options, list mode, cancellation, closing, typing into a target window.
 
 ```bash
 python tests/ui_test.py target/release/autokey.exe
+```
+
+`tests/linux_smoke.sh` (Linux, X11 session with `xdotool`, `wmctrl`, `xev` and `gedit`) checks typing, target picking and focus, timing precision and the emergency stop.
+
+```bash
+bash tests/linux_smoke.sh target/release/autokey
 ```
 
 | Environment variable | Effect |

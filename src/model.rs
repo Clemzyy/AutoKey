@@ -158,13 +158,25 @@ pub fn make_job(a: &Action, ts: Option<f64>) -> Result<Job, String> {
     })
 }
 
-// ---------- réglages (même format que la version Python : %APPDATA%\AutoKey\reglages.json) ----------
+// ---------- réglages (même format que la version Python) ----------
+/// Dossier de configuration de l'utilisateur : %APPDATA% (Windows), ~/Library/Application Support (macOS), ~/.config (Linux).
+fn config_dir() -> PathBuf {
+    let home = || std::env::var_os("HOME").map(PathBuf::from);
+    let dir = if cfg!(windows) {
+        std::env::var_os("APPDATA").map(PathBuf::from)
+    } else if cfg!(target_os = "macos") {
+        home().map(|h| h.join("Library").join("Application Support"))
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| home().map(|h| h.join(".config")))
+    };
+    dir.unwrap_or_else(|| PathBuf::from("."))
+}
+
 pub fn settings_path() -> PathBuf {
     if let Some(p) = std::env::var_os("AUTOKEY_SETTINGS") {
         return PathBuf::from(p); // tests : fichier de réglages alternatif
     }
-    let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    base.join("AutoKey").join("reglages.json")
+    config_dir().join("AutoKey").join("reglages.json")
 }
 
 fn target_to_json(t: &Option<Target>) -> Value {

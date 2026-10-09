@@ -50,21 +50,32 @@ pub fn detect() -> Lang {
     if let Some(l) = std::env::var("AUTOKEY_LANG").ok().and_then(|v| Lang::from_code(&v)) {
         return l;
     }
+    system_locale().and_then(|name| Lang::from_code(&name)).unwrap_or(Lang::En)
+}
+
+#[cfg(windows)]
+fn system_locale() -> Option<String> {
     use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
     let mut buf = [0u16; 85];
     let n = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), buf.len() as i32) };
-    if n > 0 {
-        let name = String::from_utf16_lossy(&buf[..(n as usize).saturating_sub(1)]);
-        if let Some(l) = Lang::from_code(&name) {
-            return l;
-        }
-    }
-    Lang::En
+    (n > 0).then(|| String::from_utf16_lossy(&buf[..(n as usize).saturating_sub(1)]))
 }
+
+/// Linux et macOS : variables d'environnement de langue (« fr_FR.UTF-8 »).
+#[cfg(not(windows))]
+fn system_locale() -> Option<String> {
+    ["LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok())
+        .find(|v| !v.is_empty() && v != "C" && v != "POSIX")
+}
+
+
 
 macro_rules! messages {
     ($($name:ident => [$fr:expr, $en:expr, $es:expr, $ru:expr, $ar:expr, $zh:expr]),* $(,)?) => {
         #[derive(Clone, Copy, Debug)]
+        #[allow(dead_code)]
         pub enum Msg { $($name),* }
         impl Msg {
             fn all(self) -> [&'static str; 6] {
@@ -110,6 +121,22 @@ messages! {
     TestBtn => ["Test (3 s)", "Test (3 s)", "Prueba (3 s)", "Тест (3 с)", "اختبار – 3 ث", "测试（3 秒）"],
     Keyboard => ["Clavier :", "Keyboard:", "Teclado:", "Клавиатура:", "لوحة المفاتيح:", "键盘："],
     EmergencyStop => ["Arrêt d'urgence : Ctrl + Alt + Échap", "Emergency stop: Ctrl + Alt + Esc", "Parada de emergencia: Ctrl + Alt + Esc", "Аварийная остановка: Ctrl + Alt + Esc", "إيقاف طارئ: Ctrl + Alt + Esc", "紧急停止：Ctrl + Alt + Esc"],
+    WaylandWarning => [
+        "Session Wayland détectée : le système interdit d'envoyer des touches aux autres fenêtres. Ouvre une session X11 (« sur Xorg »).",
+        "Wayland session detected: the system forbids sending keys to other windows. Log in with an X11 session (“on Xorg”).",
+        "Sesión Wayland detectada: el sistema impide enviar teclas a otras ventanas. Inicia una sesión X11 («en Xorg»).",
+        "Обнаружен сеанс Wayland: система запрещает отправлять клавиши в другие окна. Войдите в сеанс X11 («на Xorg»).",
+        "جلسة Wayland: يمنع النظام إرسال المفاتيح إلى النوافذ الأخرى. سجّل الدخول بجلسة X11.",
+        "检测到 Wayland 会话：系统禁止向其他窗口发送按键。请改用 X11 会话（“on Xorg”）登录。"
+    ],
+    MacPermission => [
+        "Autorisation manquante : ajoute AutoKey dans Réglages Système > Confidentialité et sécurité > Accessibilité, puis relance-le.",
+        "Permission missing: add AutoKey in System Settings > Privacy & Security > Accessibility, then restart it.",
+        "Falta el permiso: añade AutoKey en Ajustes del Sistema > Privacidad y seguridad > Accesibilidad y reinícialo.",
+        "Нет разрешения: добавьте AutoKey в Системные настройки > Конфиденциальность и безопасность > Универсальный доступ и перезапустите.",
+        "الإذن مفقود: أضف AutoKey في إعدادات النظام ثم الخصوصية والأمان ثم تسهيلات الاستخدام، وأعد تشغيله.",
+        "缺少权限：请在“系统设置 > 隐私与安全性 > 辅助功能”中添加 AutoKey，然后重新启动。"
+    ],
     NothingToSend => ["Rien à envoyer : tape du texte ou clique une touche.", "Nothing to send: type some text or click a key.", "Nada que enviar: escribe un texto o haz clic en una tecla.", "Нечего отправлять: введите текст или нажмите клавишу.", "لا شيء للإرسال: اكتب نصًا أو انقر على مفتاح.", "没有可发送的内容：请输入文字或点击按键。"],
     InvalidDateTime => ["Date ou heure invalide – {0}", "Invalid date or time – {0}", "Fecha u hora no válida – {0}", "Неверная дата или время – {0}", "تاريخ أو وقت غير صالح – {0}", "日期或时间无效 – {0}"],
     ListEmpty => ["La liste est vide : ajoute au moins une action.", "The list is empty: add at least one action.", "La lista está vacía: añade al menos una acción.", "Список пуст: добавьте хотя бы одно действие.", "القائمة فارغة: أضف إجراءً واحدًا على الأقل.", "列表为空：请至少添加一个动作。"],

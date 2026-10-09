@@ -1,6 +1,6 @@
 [package]
 name = "autokey"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2021"
 description = "AutoKey - tape des touches ou du texte a une heure precise"
 
@@ -10,10 +10,23 @@ egui_extras = { version = "0.36", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation", "Win32_Security", "Win32_UI_Shell", "Win32_Globalization", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse",
   "Win32_System_Threading", "Win32_System_Power", "Win32_UI_HiDpi", "Win32_Graphics_Gdi",
 ] }
+
+# Linux : fenêtres X11 et Wayland pour l'interface ; envoi de touches et gestion des fenêtres par le protocole X11 (XTest, EWMH).
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { version = "0.36", default-features = false, features = ["glow", "x11", "wayland"] }
+x11rb = { version = "0.13", features = ["xtest"] }
+xkeysym = "0.2"
+
+# macOS : envoi de touches et de clics (Quartz) et liste des fenêtres (CGWindowList).
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.24"
+core-foundation = "0.10"
 
 # eframe 0.36 démarre sa fenêtre cachée : sur certains pilotes Intel (Windows 11 récent) le contexte OpenGL
 # se bloque alors indéfiniment. Copie locale d'eframe avec une seule ligne changée (fenêtre visible dès la création).
