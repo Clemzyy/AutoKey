@@ -13,8 +13,10 @@ done
 
 T=$(mktemp -d /tmp/akxt.XXXXXX)
 FAILS=0
-cleanup() { pkill -f "$BIN" 2>/dev/null; pkill -x xev 2>/dev/null; pkill -x gedit 2>/dev/null; }
+cleanup() { pkill -f "^$BIN( |$)" 2>/dev/null; pkill -x xev 2>/dev/null; pkill -x gedit 2>/dev/null; }
 trap cleanup EXIT
+# attend (30 s au plus) qu'une fenêtre dont le titre contient $1 soit affichée
+wait_window() { for _ in $(seq 60); do wmctrl -l | grep -q "$1" && { sleep 1; return 0; }; sleep 0.5; done; return 1; }
 pass() { echo "  OK     $1"; }
 fail() { echo "  ECHEC  $1  -> $2"; FAILS=$((FAILS + 1)); }
 
@@ -32,7 +34,7 @@ echo "== 1. frappe réelle (texte, accents, symboles, caractères hors dispositi
 settings 'Bonjour Z, ça va ? 123 @#&é€ [Enter]Ligne 2 жзы 你好[Enter]fin'
 rm -f "$T/out.txt"
 gedit --new-window "$T/out.txt" >/dev/null 2>&1 &
-sleep 5
+wait_window out.txt
 run_ak AUTOKEY_AUTOARM=8
 sleep 3; wmctrl -a out.txt; sleep 12
 xdotool key ctrl+s; sleep 2
@@ -44,21 +46,21 @@ cleanup; sleep 1
 echo "== 2. cible : repérage dans la fenêtre A, B passe devant, la frappe arrive dans A"
 settings 'CIBLE[Enter]ok'
 rm -f "$T/a.txt" "$T/b.txt"
-gedit --new-window "$T/a.txt" >/dev/null 2>&1 & sleep 4
-gedit --new-window "$T/b.txt" >/dev/null 2>&1 & sleep 4
+gedit --new-window "$T/a.txt" >/dev/null 2>&1 & wait_window a.txt
+gedit --new-window "$T/b.txt" >/dev/null 2>&1 & wait_window b.txt
 wmctrl -r a.txt -e 0,40,40,640,420; wmctrl -r b.txt -e 0,720,40,640,420; sleep 1
 GEO=$(wmctrl -lG | grep " a.txt" | head -1)
 AX=$(echo "$GEO" | awk '{print $3 + $5/2}' | cut -d. -f1); AY=$(echo "$GEO" | awk '{print $4 + $6/2}' | cut -d. -f1)
 run_ak AUTOKEY_AUTOPICK=1
-sleep 4; xdotool mousemove "$AX" "$AY" click 1; sleep 3
+sleep 4; xdotool mousemove "$AX" "$AY"; sleep 0.5; xdotool mousedown 1; sleep 0.2; xdotool mouseup 1; sleep 3
 cleanup; sleep 1
 python3 - "$T/s.json" <<'EOF' && pass "cible enregistrée (programme et classe de la fenêtre)" || fail "cible enregistrée" "aucune cible dans les réglages"
 import json, sys
 t = json.load(open(sys.argv[1])).get("target")
 sys.exit(0 if t and t.get("exe") == "gedit" else 1)
 EOF
-gedit --new-window "$T/a.txt" >/dev/null 2>&1 & sleep 4
-gedit --new-window "$T/b.txt" >/dev/null 2>&1 & sleep 4
+gedit --new-window "$T/a.txt" >/dev/null 2>&1 & wait_window a.txt
+gedit --new-window "$T/b.txt" >/dev/null 2>&1 & wait_window b.txt
 wmctrl -r a.txt -e 0,40,40,640,420; wmctrl -r b.txt -e 0,720,40,640,420; sleep 1
 wmctrl -a b.txt; sleep 1
 run_ak AUTOKEY_AUTOARM=6
@@ -71,9 +73,9 @@ cleanup; sleep 1
 
 echo "== 3. précision de l'heure (la cible de frappe est la fenêtre xev, qui date chaque touche)"
 settings 'x'
-TARGET_STR=$(date -d "+12 seconds" +%H:%M:%S); TARGET_EPOCH=$(date -d "$TARGET_STR" +%s)
 xev -event keyboard >"$T/xev.log" 2>&1 &
-sleep 2
+wait_window "Event Tester"
+TARGET_STR=$(date -d "+12 seconds" +%H:%M:%S); TARGET_EPOCH=$(date -d "$TARGET_STR" +%s)
 run_ak AUTOKEY_AUTOARM="$TARGET_STR"
 sleep 3; wmctrl -a "Event Tester"; sleep 1
 T0=$(date +%s.%N); xdotool key F12      # repère entre l'heure réelle et l'heure du serveur X
@@ -93,9 +95,9 @@ cleanup; sleep 1
 
 echo "== 4. arrêt d'urgence (50 répétitions toutes les 200 ms, Ctrl + Alt + Échap maintenu 0,3 s après ~2 s)"
 settings 'y' true 50 200
-TARGET_STR=$(date -d "+10 seconds" +%H:%M:%S)
 xev -event keyboard >"$T/xev.log" 2>&1 &
-sleep 2
+wait_window "Event Tester"
+TARGET_STR=$(date -d "+10 seconds" +%H:%M:%S)
 run_ak AUTOKEY_AUTOARM="$TARGET_STR"
 sleep 3; wmctrl -a "Event Tester"; sleep 1
 sleep $(( $(date -d "$TARGET_STR" +%s) - $(date +%s) + 2 ))
