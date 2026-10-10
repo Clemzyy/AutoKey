@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Local};
 use eframe::egui;
 
-use crate::engine::{self, Target};
+use crate::engine::{self, Input, Target};
 use crate::i18n::{self, tf, Msg};
 use crate::model::{now_secs, Item, Job};
 
@@ -38,11 +38,37 @@ pub struct Shared {
     pub picking: AtomicBool,
 }
 
-/// Message affiché quand rien ne se passe : le rappel de l'arrêt d'urgence, ou l'avertissement Wayland sous Linux.
+/// Message affiché quand rien ne se passe : le rappel de l'arrêt d'urgence, ou l'état de l'autorisation sous Linux.
 pub fn idle_status() -> (String, Kind) {
-    match engine::session_warning() {
-        Some(m) => (i18n::t(m).into(), Kind::Warn),
-        None => (i18n::t(Msg::EmergencyStop).into(), Kind::Info),
+    match engine::input_state() {
+        Input::Needed => (i18n::t(Msg::WaylandNeeded).into(), Kind::Warn),
+        Input::Pending => (i18n::t(Msg::WaylandPending).into(), Kind::Wait),
+        Input::Denied(_) => (i18n::t(Msg::WaylandDenied).into(), Kind::Err),
+        Input::Ready => match engine::session_warning() {
+            Some(m) => (i18n::t(m).into(), Kind::Warn),
+            None if !engine::emergency_key() => (i18n::t(Msg::WaylandReady).into(), Kind::Info),
+            None => (i18n::t(Msg::EmergencyStop).into(), Kind::Info),
+        },
+    }
+}
+
+/// Sous Wayland, attend que l'utilisateur ait autorisé l'envoi de touches (demande la fenêtre de confirmation si besoin).
+/// Faux si l'autorisation est refusée ou si l'arrêt est demandé.
+fn ensure_input(sh: &Shared, ctx: &egui::Context) -> bool {
+    if engine::input_state() == Input::Ready {
+        return true;
+    }
+    engine::request_input();
+    sh.set_status(ctx, i18n::t(Msg::WaylandPending), Kind::Wait);
+    loop {
+        if sh.stop() {
+            return false;
+        }
+        match engine::input_state() {
+            Input::Ready => return true,
+            Input::Denied(_) => return false,
+            _ => sleep(Duration::from_millis(100)),
+        }
     }
 }
 
@@ -193,6 +219,12 @@ pub fn spawn_jobs(jobs: Vec<Job>, label: Option<String>, sh: Arc<Shared>, ctx: e
     sh.cancel.store(false, Ordering::SeqCst);
     sh.running.store(true, Ordering::SeqCst);
     std::thread::spawn(move || {
+        if !ensure_input(&sh, &ctx) {
+            let (msg, kind) = if sh.stop() { (i18n::t(Msg::Cancelled), Kind::Warn) } else { (i18n::t(Msg::WaylandDenied), Kind::Err) };
+            sh.running.store(false, Ordering::SeqCst);
+            sh.set_status(&ctx, msg, kind);
+            return;
+        }
         engine::keep_awake(true);
         let total = jobs.len();
         let (mut done, mut errors, mut minimized) = (0, Vec::<String>::new(), false);

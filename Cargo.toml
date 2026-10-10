@@ -1,6 +1,6 @@
 [package]
 name = "autokey"
-version = "2.2.0"
+version = "2.3.0"
 edition = "2021"
 description = "AutoKey - tape des touches ou du texte a une heure precise"
 
@@ -22,6 +22,10 @@ windows-sys = { version = "0.61", features = [
 eframe = { version = "0.36", default-features = false, features = ["glow", "x11", "wayland"] }
 x11rb = { version = "0.13", features = ["xtest"] }
 xkeysym = "0.2"
+xkbcommon-dl = "0.4"
+# Wayland : envoi de touches par le portail « RemoteDesktop » (le système demande l'accord de l'utilisateur).
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "remote_desktop", "screencast"] }
+tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
 
 # macOS : envoi de touches et de clics (Quartz) et liste des fenêtres (CGWindowList).
 [target.'cfg(target_os = "macos")'.dependencies]

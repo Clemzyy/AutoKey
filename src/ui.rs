@@ -11,7 +11,7 @@ use eframe::egui::{
 use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
 
-use crate::engine::{self, Target};
+use crate::engine::{self, Input, Target};
 use crate::i18n::{self, tf, Lang, Msg};
 use crate::keys::{self, KbLayout, KeyDef, Modk, Tok, LAYOUTS};
 use crate::model::{self, Action, Saved};
@@ -543,6 +543,7 @@ pub struct App {
     autopick: bool,                      // AUTOKEY_AUTOPICK=1 : lance le repérage de zone dès le démarrage (tests)
     autoarm: Option<String>,             // AUTOKEY_AUTOARM=N ou HH:MM:SS : arme l'action dès le démarrage (tests)
     shot: Option<String>, // AUTOKEY_SHOT=chemin.png : enregistre une capture de la fenêtre puis quitte (tests)
+    last_input: Input,    // dernier état de l'autorisation d'envoi de touches (Wayland), pour rafraîchir le message d'état
 }
 
 const TEXT_ID: &str = "texte_a_envoyer";
@@ -589,6 +590,7 @@ impl App {
             autopick: std::env::var("AUTOKEY_AUTOPICK").is_ok(),
             autoarm: std::env::var("AUTOKEY_AUTOARM").ok(),
             shot: std::env::var("AUTOKEY_SHOT").ok(),
+            last_input: engine::input_state(),
         }
     }
 
@@ -889,12 +891,15 @@ impl App {
         });
         ui.add_space(2.0);
         ui.horizontal(|ui| {
+            let targets = engine::targets_supported();
             ui.add_enabled_ui(!running, |ui| {
-                if Pill::new(format!("◎  {}", i18n::t(Msg::PickTarget)), ACCENT, ACCENT_HOV, Color32::WHITE).show(ui).clicked() {
-                    self.start_pick(ctx);
-                }
-                if Pill::new("✕", KEY, KEY_HOV, TXT).min_w(36.0).show(ui).clicked() {
-                    self.ed.target = None;
+                if targets {
+                    if Pill::new(format!("◎  {}", i18n::t(Msg::PickTarget)), ACCENT, ACCENT_HOV, Color32::WHITE).show(ui).clicked() {
+                        self.start_pick(ctx);
+                    }
+                    if Pill::new("✕", KEY, KEY_HOV, TXT).min_w(36.0).show(ui).clicked() {
+                        self.ed.target = None;
+                    }
                 }
                 let r = Pill::new(format!("⚙  {}  ▾", i18n::t(Msg::Options)), KEY, KEY_HOV, TXT).show(ui);
                 self.opt_rect = r.rect;
@@ -902,11 +907,13 @@ impl App {
                     self.opt_open = !self.opt_open;
                 }
             });
-            for (on, color) in [(self.ed.minim, VIOLET), (self.ed.use_target, JAUNE), (self.ed.back, ORANGE)] {
+            let squares = if targets { vec![(self.ed.minim, VIOLET), (self.ed.use_target, JAUNE), (self.ed.back, ORANGE)] } else { vec![(self.ed.minim, VIOLET)] };
+            for (on, color) in squares {
                 let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                 ui.painter().rect_filled(rect, CornerRadius::same(6), if on { color } else { GRIS });
             }
             let text = match &self.ed.target {
+                _ if !targets => i18n::t(Msg::WaylandNoTarget).to_string(),
                 Some(t) => tf(Msg::TargetInfo, &[&t.exe, &t.title.chars().take(70).collect::<String>(), &t.dx, &t.dy]),
                 None => i18n::t(Msg::NoTarget).to_string(),
             };
@@ -918,7 +925,8 @@ impl App {
         if !self.opt_open {
             return;
         }
-        let h = 3.0 * 42.0 + 4.0 * 8.0 + 12.0;
+        let count = if engine::targets_supported() { 3.0 } else { 1.0 };
+        let h = count * 42.0 + (count + 1.0) * 8.0 + 12.0;
         let below = self.opt_rect.left_bottom() + vec2(0.0, 6.0);
         let screen = ctx.content_rect();
         let pos = if below.y + h > screen.bottom() - self.bottom_h { pos2(below.x, self.opt_rect.top() - h - 6.0) } else { below };
@@ -936,6 +944,9 @@ impl App {
                 .show(ui, |ui| {
                     ui.set_width(300.0);
                     for (text, color, which) in defs {
+                        if which > 0 && !engine::targets_supported() {
+                            continue;
+                        }
                         let on = match which {
                             0 => self.ed.minim,
                             1 => self.ed.use_target,
@@ -1220,6 +1231,11 @@ impl App {
             if Pill::new(i18n::t(Msg::TestBtn), KEY, KEY_HOV, TXT).h(40.0).radius(12).enabled(!running).show(ui).clicked() {
                 self.test(ctx);
             }
+            if matches!(engine::input_state(), Input::Needed | Input::Denied(_)) {
+                if Pill::new(i18n::t(Msg::WaylandAllow), ACCENT, ACCENT_HOV, Color32::WHITE).h(40.0).radius(12).show(ui).clicked() {
+                    engine::request_input();
+                }
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let (text, kind) = self.sh.status.lock().unwrap().clone();
                 let color = match kind {
@@ -1238,6 +1254,17 @@ impl App {
 impl eframe::App for App {
     /// Appelé avant chaque image, même fenêtre réduite : réagit aux demandes des threads d'arrière-plan.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let input = engine::input_state();
+        if input != self.last_input {
+            self.last_input = input.clone();
+            if !self.running() {
+                let (text, kind) = worker::idle_status();
+                self.sh.set_status(ctx, text, kind);
+            }
+        }
+        if input == Input::Pending {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
         if self.sh.minimize.swap(false, Ordering::SeqCst) {
             ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
         }

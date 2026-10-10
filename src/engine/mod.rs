@@ -9,6 +9,10 @@ use crate::i18n::{self, Msg};
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+mod wayland;
+#[cfg(target_os = "linux")]
+mod xkb;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
@@ -20,6 +24,43 @@ pub use linux::*;
 pub use macos::*;
 #[cfg(windows)]
 pub use windows::*;
+
+/// Disponibilité de l'envoi de touches. Sous Wayland, le système exige l'autorisation de l'utilisateur ; ailleurs, tout est prêt.
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub enum Input {
+    Ready,
+    /// Autorisation à demander (bouton « Autoriser »).
+    Needed,
+    /// Fenêtre de confirmation du système affichée.
+    Pending,
+    /// Autorisation refusée ou retirée.
+    Denied(String),
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn input_state() -> Input {
+    Input::Ready
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn request_input() {}
+
+/// Rétablit au démarrage une autorisation mémorisée, sans fenêtre de confirmation.
+#[cfg(not(target_os = "linux"))]
+pub fn init() {}
+
+/// Vrai si l'on peut viser une fenêtre précise (impossible sous Wayland : les touches vont dans la fenêtre active).
+#[cfg(not(target_os = "linux"))]
+pub fn targets_supported() -> bool {
+    true
+}
+
+/// Vrai si le raccourci clavier d'arrêt d'urgence est utilisable (impossible sous Wayland : seul le bouton Annuler reste).
+#[cfg(not(target_os = "linux"))]
+pub fn emergency_key() -> bool {
+    true
+}
 
 /// Fenêtre + position de la zone de saisie visée (la fenêtre est retrouvée même après un redémarrage).
 #[derive(Clone, Debug, Default, PartialEq)]

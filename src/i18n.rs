@@ -122,12 +122,53 @@ messages! {
     Keyboard => ["Clavier :", "Keyboard:", "Teclado:", "Клавиатура:", "لوحة المفاتيح:", "键盘："],
     EmergencyStop => ["Arrêt d'urgence : Ctrl + Alt + Échap", "Emergency stop: Ctrl + Alt + Esc", "Parada de emergencia: Ctrl + Alt + Esc", "Аварийная остановка: Ctrl + Alt + Esc", "إيقاف طارئ: Ctrl + Alt + Esc", "紧急停止：Ctrl + Alt + Esc"],
     WaylandWarning => [
-        "Session Wayland détectée : le système interdit d'envoyer des touches aux autres fenêtres. Ouvre une session X11 (« sur Xorg »).",
-        "Wayland session detected: the system forbids sending keys to other windows. Log in with an X11 session (“on Xorg”).",
-        "Sesión Wayland detectada: el sistema impide enviar teclas a otras ventanas. Inicia una sesión X11 («en Xorg»).",
-        "Обнаружен сеанс Wayland: система запрещает отправлять клавиши в другие окна. Войдите в сеанс X11 («на Xorg»).",
-        "جلسة Wayland: يمنع النظام إرسال المفاتيح إلى النوافذ الأخرى. سجّل الدخول بجلسة X11.",
-        "检测到 Wayland 会话：系统禁止向其他窗口发送按键。请改用 X11 会话（“on Xorg”）登录。"
+        "Wayland sans portail d'envoi de touches : le système interdit d'envoyer des touches aux autres fenêtres. Ouvre une session X11 (« sur Xorg »).",
+        "Wayland without a key-sending portal: the system forbids sending keys to other windows. Log in with an X11 session (“on Xorg”).",
+        "Wayland sin portal de envío de teclas: el sistema impide enviar teclas a otras ventanas. Inicia una sesión X11 («en Xorg»).",
+        "Wayland без портала отправки клавиш: система запрещает отправлять клавиши в другие окна. Войдите в сеанс X11 («на Xorg»).",
+        "Wayland بدون بوابة إرسال المفاتيح: يمنع النظام إرسال المفاتيح إلى النوافذ الأخرى. سجّل الدخول بجلسة X11.",
+        "Wayland 没有按键发送门户：系统禁止向其他窗口发送按键。请改用 X11 会话（“on Xorg”）登录。"
+    ],
+    WaylandNeeded => [
+        "Wayland : clique sur « Autoriser ».",
+        "Wayland: click “Allow”.",
+        "Wayland: pulsa «Permitir».",
+        "Wayland: нажмите «Разрешить».",
+        "Wayland: اضغط على السماح.",
+        "Wayland：请点击“允许”。"
+    ],
+    WaylandReady => [
+        "Wayland autorisé. Arrêt d'urgence : bouton Annuler.",
+        "Wayland allowed. Emergency stop: Cancel button.",
+        "Wayland permitido. Parada de emergencia: botón Cancelar.",
+        "Wayland разрешён. Аварийная остановка: кнопка «Отмена».",
+        "Wayland: تم السماح. الإيقاف الطارئ: زر إلغاء.",
+        "Wayland 已允许。紧急停止：取消按钮。"
+    ],
+    WaylandPending => [
+        "En attente de ton accord dans la fenêtre du système…",
+        "Waiting for your approval in the system dialog…",
+        "Esperando tu aprobación en el cuadro del sistema…",
+        "Ожидается ваше подтверждение в окне системы…",
+        "في انتظار موافقتك في نافذة النظام…",
+        "正在等待你在系统对话框中确认…"
+    ],
+    WaylandDenied => [
+        "Autorisation refusée. Clique sur « Autoriser ».",
+        "Permission denied. Click “Allow”.",
+        "Permiso denegado. Pulsa «Permitir».",
+        "Разрешение отклонено. Нажмите «Разрешить».",
+        "تم رفض الإذن. اضغط على السماح.",
+        "权限被拒绝。请点击“允许”。"
+    ],
+    WaylandAllow => ["Autoriser", "Allow", "Permitir", "Разрешить", "السماح", "允许"],
+    WaylandNoTarget => [
+        "Sous Wayland, les touches vont dans la fenêtre active (pas de zone cible).",
+        "On Wayland, keys go to the active window (no target area).",
+        "En Wayland, las teclas van a la ventana activa (sin zona de destino).",
+        "В Wayland клавиши идут в активное окно (без целевой области).",
+        "في Wayland تذهب المفاتيح إلى النافذة النشطة دون منطقة هدف.",
+        "在 Wayland 下，按键会发送到当前活动窗口（没有目标区域）。"
     ],
     MacPermission => [
         "Autorisation manquante : ajoute AutoKey dans Réglages Système > Confidentialité et sécurité > Accessibilité, puis relance-le.",

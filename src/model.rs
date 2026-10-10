@@ -152,7 +152,7 @@ pub fn make_job(a: &Action, ts: Option<f64>) -> Result<Job, String> {
         mods: a.mods.iter().filter_map(|m| Modk::parse(m)).map(Modk::scan).collect(),
         n: if a.repeat { a.rep.max(1) } else { 1 },
         gap: if a.repeat { a.gap as f64 / 1000.0 } else { 0.0 },
-        target: if a.use_target { a.target.clone() } else { None },
+        target: if a.use_target && crate::engine::targets_supported() { a.target.clone() } else { None },
         back: a.back,
         minim: a.minim,
     })
@@ -160,7 +160,7 @@ pub fn make_job(a: &Action, ts: Option<f64>) -> Result<Job, String> {
 
 // ---------- réglages (même format que la version Python) ----------
 /// Dossier de configuration de l'utilisateur : %APPDATA% (Windows), ~/Library/Application Support (macOS), ~/.config (Linux).
-fn config_dir() -> PathBuf {
+pub fn config_dir() -> PathBuf {
     let home = || std::env::var_os("HOME").map(PathBuf::from);
     let dir = if cfg!(windows) {
         std::env::var_os("APPDATA").map(PathBuf::from)

@@ -19,7 +19,8 @@ use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
 use xkeysym::Keysym;
 
-use super::Target;
+use super::{wayland, xkb};
+use super::{Input, Target};
 use crate::i18n::{self, Msg};
 use crate::keys::Modk;
 
@@ -69,10 +70,59 @@ fn x() -> Option<&'static X> {
     .as_ref()
 }
 
-/// Message à afficher si le système ne permet pas d'agir sur les autres fenêtres (Wayland).
+fn wayland_session() -> bool {
+    std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v.eq_ignore_ascii_case("wayland"))
+}
+
+/// Vrai si les touches passent par le portail Wayland (session Wayland dont le bureau offre ce portail).
+fn via_portal() -> bool {
+    wayland_session() && wayland::state() != wayland::State::Unavailable
+}
+
+/// Avertissement quand le système ne permet pas d'agir sur les autres fenêtres : Wayland sans portail, ou aucun serveur X.
 pub fn session_warning() -> Option<Msg> {
-    let wayland = std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v.eq_ignore_ascii_case("wayland"));
-    (wayland || x().is_none()).then_some(Msg::WaylandWarning)
+    if via_portal() {
+        return None; // l'état de l'autorisation est suivi par `input_state`
+    }
+    (wayland_session() || x().is_none()).then_some(Msg::WaylandWarning)
+}
+
+pub fn input_state() -> Input {
+    if !via_portal() {
+        return Input::Ready;
+    }
+    match wayland::state() {
+        wayland::State::Needed => Input::Needed,
+        wayland::State::Pending => Input::Pending,
+        wayland::State::Denied(why) => Input::Denied(why),
+        wayland::State::Granted => {
+            warm_portal_keymap();
+            Input::Ready
+        }
+        wayland::State::Unavailable => Input::Ready,
+    }
+}
+
+/// Demande l'autorisation d'envoyer des touches (fenêtre de confirmation du système, sous Wayland).
+pub fn request_input() {
+    if wayland_session() {
+        wayland::request();
+    }
+}
+
+/// Au démarrage : rétablit sans fenêtre de confirmation un accord déjà mémorisé.
+pub fn init() {
+    if wayland_session() && wayland::has_saved_token() {
+        wayland::request();
+    }
+}
+
+pub fn targets_supported() -> bool {
+    !via_portal()
+}
+
+pub fn emergency_key() -> bool {
+    !via_portal()
 }
 
 // ---------- envoi de touches ----------
@@ -119,8 +169,35 @@ fn keysyms(scan: u16, ext: bool) -> Vec<u32> {
     }
 }
 
+/// Code de balayage Windows (jeu 1) → code de touche évdev (celui qu'attend le portail Wayland).
+fn evdev(scan: u16, ext: bool) -> i32 {
+    if !ext {
+        return scan as i32;
+    }
+    match scan {
+        0x1C => 96,  // Entrée du pavé
+        0x1D => 97,  // Ctrl droit
+        0x35 => 98,  // / du pavé
+        0x38 => 100, // Alt Gr
+        0x47 => 102, // début
+        0x48 => 103, // haut
+        0x49 => 104, // page précédente
+        0x4B => 105, // gauche
+        0x4D => 106, // droite
+        0x4F => 107, // fin
+        0x50 => 108, // bas
+        0x51 => 109, // page suivante
+        0x52 => 110, // insertion
+        0x53 => 111, // suppression
+        other => other as i32,
+    }
+}
+
 /// Appuie (up = false) ou relâche (up = true) une touche physique, par code de balayage.
 pub fn send_scan(scan: u16, ext: bool, up: bool) -> bool {
+    if via_portal() {
+        return wayland::keycode(evdev(scan, ext), !up);
+    }
     let Some(x) = x() else { return false };
     let Some(km) = keymap(x) else { return false };
     let Some(code) = keysyms(scan, ext).iter().find_map(|s| km.codes_for(*s).first().copied()) else { return false };
@@ -194,35 +271,128 @@ fn type_unicode(x: &X, km: &Keymap, c: char) -> bool {
     ok
 }
 
-/// Appuie sur la touche qui produit `c` (Maj / Alt Gr ajoutés si le caractère l'exige) ; si la disposition active ne
-/// le contient pas, il est tapé par une touche temporaire.
-pub fn press_char(c: char) -> bool {
-    let Some(x) = x() else { return false };
-    match c {
-        '\n' | '\r' => return send_scan(0x1C, false, false) & send_scan(0x1C, false, true),
-        '\t' => return send_scan(0x0F, false, false) & send_scan(0x0F, false, true),
-        c if c.is_control() => return true,
-        _ => {}
+/// Appuie / relâche une touche par son code X11 (évdev + 8), par XTest ou par le portail Wayland.
+fn key_event(x: Option<&X>, code: u8, down: bool) -> bool {
+    if via_portal() {
+        wayland::keycode(code as i32 - 8, down)
+    } else {
+        x.is_some_and(|x| fake(x, if down { KEY_PRESS } else { KEY_RELEASE }, code, 0, 0))
     }
-    let Some(km) = keymap(x) else { return false };
-    let Some((code, shift, altgr)) = find_char(&km, c) else { return type_unicode(x, &km, c) };
+}
+
+/// Appuie sur une touche avec les modificateurs voulus (Ctrl, Maj, Alt Gr), puis les relâche.
+fn strike(x: Option<&X>, code: u8, ctrl: bool, shift: bool, altgr: bool) -> bool {
     let mut held: Vec<(u16, bool)> = Vec::new();
+    if ctrl {
+        held.push(Modk::Ctrl.scan());
+    }
     if shift {
         held.push(Modk::LShift.scan());
     }
     if altgr {
         held.push(Modk::AltGr.scan());
     }
+    let portal = via_portal();
     let mut ok = true;
     for (s, e) in &held {
         ok &= send_scan(*s, *e, false);
     }
-    ok &= fake(x, KEY_PRESS, code, 0, 0);
-    ok &= fake(x, KEY_RELEASE, code, 0, 0);
+    if portal && !held.is_empty() {
+        sleep(Duration::from_millis(12)); // le bureau doit avoir pris en compte Maj / Alt Gr avant la touche
+    }
+    ok &= key_event(x, code, true);
+    ok &= key_event(x, code, false);
+    if portal && !held.is_empty() {
+        sleep(Duration::from_millis(6));
+    }
     for (s, e) in held.iter().rev() {
         send_scan(*s, *e, true);
     }
+    if portal && !held.is_empty() {
+        sleep(Duration::from_millis(6));
+    }
     ok
+}
+
+/// Disposition utilisée sous Wayland, relue au plus toutes les 5 s (en arrière-plan : la frappe n'attend jamais).
+fn portal_keymap() -> Option<Arc<Keymap>> {
+    static CACHE: Mutex<Option<(Instant, Arc<Keymap>)>> = Mutex::new(None);
+    static REFRESHING: AtomicBool = AtomicBool::new(false);
+    fn rebuild() -> Option<Arc<Keymap>> {
+        let (layout, variant) = xkb_layout().unwrap_or_else(|| ("us".to_string(), String::new()));
+        // « fr,us » / « ,oss » : la première disposition est la disposition active
+        let first = |s: &str| s.split(',').next().unwrap_or("").trim().to_string();
+        let (first_code, per, syms) = xkb::build(&first(&layout), &first(&variant))?;
+        let km = Arc::new(Keymap { first: first_code, per, syms });
+        if let Ok(mut slot) = CACHE.lock() {
+            *slot = Some((Instant::now(), km.clone()));
+        }
+        Some(km)
+    }
+    let cached = CACHE.lock().ok()?.clone();
+    match cached {
+        Some((at, km)) => {
+            if at.elapsed() > Duration::from_secs(5) && !REFRESHING.swap(true, Ordering::SeqCst) {
+                std::thread::spawn(|| {
+                    rebuild();
+                    REFRESHING.store(false, Ordering::SeqCst);
+                });
+            }
+            Some(km)
+        }
+        None => rebuild(),
+    }
+}
+
+/// Prépare la disposition dès que l'autorisation Wayland est accordée, pour que la première frappe parte à l'heure.
+fn warm_portal_keymap() {
+    static WARMED: AtomicBool = AtomicBool::new(false);
+    if !WARMED.swap(true, Ordering::SeqCst) {
+        std::thread::spawn(|| {
+            portal_keymap();
+            // le clavier virtuel du bureau perd parfois son premier événement : on lui envoie un Maj sans effet
+            sleep(Duration::from_millis(150));
+            wayland::keycode(42, true);
+            sleep(Duration::from_millis(20));
+            wayland::keycode(42, false);
+        });
+    }
+}
+
+/// Caractère absent de la disposition, sous Wayland : saisie Unicode « Ctrl + Maj + U, code hexadécimal, Espace »,
+/// comprise par GTK, Chrome et la plupart des applications du bureau GNOME.
+fn portal_unicode(km: &Keymap, c: char) -> bool {
+    let digits: Option<Vec<_>> = format!("{:x}", c as u32).chars().map(|h| find_char(km, h)).collect();
+    let (Some(digits), Some(u), Some(space)) = (digits, find_char(km, 'u'), find_char(km, ' ')) else { return false };
+    let mut ok = strike(None, u.0, true, true, false);
+    sleep(Duration::from_millis(30));
+    for (code, shift, altgr) in digits {
+        ok &= strike(None, code, false, shift, altgr);
+        sleep(Duration::from_millis(8));
+    }
+    ok &= strike(None, space.0, false, false, false);
+    sleep(Duration::from_millis(20));
+    ok
+}
+
+/// Appuie sur la touche qui produit `c` (Maj / Alt Gr ajoutés si le caractère l'exige) ; si la disposition active ne
+/// le contient pas, il est tapé par une touche temporaire (X11) ou par la saisie Unicode (Wayland).
+pub fn press_char(c: char) -> bool {
+    match c {
+        '\n' | '\r' => return send_scan(0x1C, false, false) & send_scan(0x1C, false, true),
+        '\t' => return send_scan(0x0F, false, false) & send_scan(0x0F, false, true),
+        c if c.is_control() => return true,
+        _ => {}
+    }
+    let portal = via_portal();
+    let x = x();
+    let km = if portal { portal_keymap() } else { x.and_then(keymap) };
+    let Some(km) = km else { return false };
+    match find_char(&km, c) {
+        Some((code, shift, altgr)) => strike(x, code, false, shift, altgr),
+        None if portal => portal_unicode(&km, c),
+        None => x.is_some_and(|x| type_unicode(x, &km, c)),
+    }
 }
 
 /// Sous X11, le clavier a une seule disposition : taper un caractère ou appuyer sur sa touche revient au même.
@@ -268,6 +438,9 @@ fn any_down(x: &X, keys: &[u8; 32], syms: &[u32]) -> bool {
 
 /// Arrêt d'urgence : Ctrl + Alt + Échap, même si la fenêtre est réduite.
 pub fn panic_pressed() -> bool {
+    if via_portal() {
+        return false; // Wayland ne permet pas de lire le clavier hors de sa fenêtre : seul le bouton Annuler arrête
+    }
     let Some(x) = x() else { return false };
     let Some(keys) = pressed_keys(x) else { return false };
     any_down(x, &keys, &[0xffe3, 0xffe4]) && any_down(x, &keys, &[0xffe9, 0xffea]) && any_down(x, &keys, &[0xff1b])
@@ -465,11 +638,28 @@ pub fn open_url(url: &str) {
 // ---------- disposition du clavier ----------
 /// Disposition et variante XKB déclarées par la session (« fr », « us,ru » / « dvorak »…).
 pub fn xkb_layout() -> Option<(String, String)> {
+    if wayland_session() {
+        gnome_layout().or_else(x_layout) // sous Wayland, le serveur X (XWayland) ne reflète pas toujours la disposition choisie
+    } else {
+        x_layout().or_else(gnome_layout)
+    }
+}
+
+fn x_layout() -> Option<(String, String)> {
     let x = x()?;
     let r = prop(x, x.root, x.atoms.xkb_rules, AtomEnum::STRING)?;
     let parts: Vec<String> = r.value.split(|b| *b == 0).map(|p| String::from_utf8_lossy(p).into_owned()).collect();
     // règles, modèle, disposition, variante, options
     Some((parts.get(2)?.clone(), parts.get(3).cloned().unwrap_or_default()))
+}
+
+/// Sous Wayland (GNOME), la disposition est dans les sources de saisie : « [('xkb', 'fr'), ('xkb', 'us+dvorak')] ».
+fn gnome_layout() -> Option<(String, String)> {
+    let out = Command::new("gsettings").args(["get", "org.gnome.desktop.input-sources", "sources"]).output().ok()?;
+    let text = String::from_utf8(out.stdout).ok()?;
+    let first = text.split('\'').nth(3)?; // [('xkb', 'fr') -> fr
+    let (layout, variant) = first.split_once('+').unwrap_or((first, ""));
+    Some((layout.to_string(), variant.to_string()))
 }
 
 // ---------- instance unique ----------

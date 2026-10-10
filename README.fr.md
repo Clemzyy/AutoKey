@@ -2,7 +2,7 @@
 
 **Tape une touche, un texte ou une combinaison à l'heure exacte que tu choisis — dans la fenêtre de ton choix.**
 
-🌐 [English](README.md) · **Français**
+🌐 [English](README.md) · **Français** · [Español](README.es.md) · [Русский](README.ru.md) · [العربية](README.ar.md) · [中文](README.zh.md)
 
 ![AutoKey](docs/screenshot-fr.png)
 
@@ -15,7 +15,7 @@ AutoKey est un petit utilitaire écrit en Rust pour **Windows, Linux et macOS** 
 | Système | Fichier | État |
 |---|---|---|
 | Windows 10/11, 64 bits | `AutoKey.exe` | testé |
-| Linux, session X11 (x86-64 et ARM64) | `AutoKey-linux-x86_64.tar.gz`, `AutoKey-linux-aarch64.tar.gz` | testé sur Ubuntu 22.04 (x86-64) |
+| Linux, session X11 ou Wayland (x86-64 et ARM64) | `AutoKey-linux-x86_64.tar.gz`, `AutoKey-linux-aarch64.tar.gz` | testé sur Ubuntu 22.04 (x86-64), X11 et Wayland |
 | macOS 11+ (Intel et Apple Silicon) | `AutoKey-macos.zip` | compile, **pas encore testé sur un vrai Mac** |
 | Windows sur ARM | `AutoKey-windows-arm64.exe` | compile, non testé |
 
@@ -30,7 +30,7 @@ Aucun fichier n'est signé — voir les [remarques par système](#remarques-par-
 - **Zone cible** : clique une fois dans le champ voulu ; AutoKey retrouve la fenêtre (même après un redémarrage de l'application visée), la restaure si elle est réduite, la ramène au premier plan, clique dans la zone, puis écrit. Il refuse d'écrire si la fenêtre est introuvable ou masquée, plutôt que de taper au hasard.
 - **Trois options par action**, repérées par des carrés colorés : 🟣 réduire AutoKey au lancement · 🟡 aller dans la zone avant d'écrire · 🟠 revenir ensuite où tu étais.
 - **Mode liste d'actions** : plusieurs actions, chacune avec son heure, son texte, sa cible et ses options, exécutées dans l'ordre des heures.
-- **Arrêt d'urgence** : `Ctrl + Alt + Échap` (`Ctrl + Option + Échap` sous macOS), pris en compte à tout moment, même fenêtre réduite et pendant une longue pause entre deux répétitions. **Anti-veille** pendant qu'une action est armée.
+- **Arrêt d'urgence** : `Ctrl + Alt + Échap` (`Ctrl + Option + Échap` sous macOS, bouton Annuler sous Wayland), pris en compte à tout moment, même fenêtre réduite et pendant une longue pause entre deux répétitions. **Anti-veille** pendant qu'une action est armée.
 - **Précision** : avec une cible, la fenêtre est préparée 1,5 s avant l'heure pour que la première touche parte à l'heure exacte (mesuré : +1 à +2 ms).
 - **Sécurité** : une action en retard de plus de 30 s (PC en veille…) est ignorée plutôt que tapée dans la mauvaise fenêtre ; une seule instance ; réglages écrits de façon atomique ; message clair si Windows refuse les touches (cible lancée en administrateur).
 - Champs numériques : clic pour taper, glisser, ou `Ctrl + molette`. Réglages mémorisés dans ton dossier utilisateur (`%APPDATA%\AutoKey\reglages.json` sous Windows, `~/.config/AutoKey/` sous Linux, `~/Library/Application Support/AutoKey/` sous macOS).
@@ -50,7 +50,11 @@ Les applications lancées **en administrateur** ignorent les touches envoyées p
 
 **Windows** — Le fichier n'est pas signé : SmartScreen peut avertir au premier lancement → *Informations complémentaires* → *Exécuter quand même*.
 
-**Linux** — AutoKey pilote les autres fenêtres par le protocole X11 : il fonctionne dans toute **session X11** (et avec les fenêtres X11 d'une session Wayland). Une application **Wayland** pure est hors d'atteinte : le système interdit à un programme d'envoyer des touches à une autre fenêtre. AutoKey affiche alors un avertissement ; ouvre plutôt une session « … sur Xorg » (roue crantée de l'écran de connexion). Décompresse l'archive et lance `./autokey`. Outils facultatifs : `xdg-open` (lien de don), `systemd-inhibit` (anti-veille), `fc-match` (recherche de polices). Testé sur Ubuntu 22.04 (X11) : frappe, accents et textes non latins, repérage de zone et mise au premier plan, précision à la milliseconde (mesuré −0,5 ms) et arrêt d'urgence.
+**Linux** — AutoKey fonctionne sous **X11** et sous **Wayland** :
+- **X11** : les touches et les clics passent par XTest et les fenêtres par EWMH ; tout marche — zone cible, mise au premier plan, `Ctrl + Alt + Échap`.
+- **Wayland** : un programme n'a pas le droit d'envoyer des touches de lui-même ; AutoKey le demande donc au bureau par le portail *Bureau à distance*. La première fois, le système affiche une fenêtre de confirmation : clique sur **Autoriser** (GNOME : **Partager**) — les bureaux récents mémorisent ton choix. Les touches vont ensuite dans la **fenêtre active** : Wayland interdit aussi de lister ou de mettre au premier plan les autres fenêtres, donc la zone cible et le raccourci `Ctrl + Alt + Échap` ne sont pas disponibles (utilise le bouton **Annuler**, et l'option *réduire au lancement* pour rendre le focus à ton application). Les caractères absents de ta disposition de clavier sont tapés par la saisie Unicode `Ctrl + Maj + U`, comprise par GTK et la plupart des applications du bureau.
+
+Décompresse l'archive et lance `./autokey`. Outils facultatifs : `xdg-open` (lien de don), `systemd-inhibit` (anti-veille), `fc-match` (recherche de polices). Testé sur Ubuntu 22.04 (GNOME 42) : sous X11, frappe, accents et textes non latins, repérage de zone et mise au premier plan, précision à la milliseconde (mesuré −3 ms) et arrêt d'urgence ; sous Wayland, majuscules, accents, symboles Alt Gr, cyrillique et chinois, autorisation accordée et refusée.
 
 **macOS** — Décompresse `AutoKey-macos.zip`. L'application n'est ni signée ni notariée : au premier lancement, clic droit → *Ouvrir*. macOS demande de l'autoriser dans *Réglages Système → Confidentialité et sécurité → Accessibilité* (nécessaire pour envoyer des touches) et, pour lire les titres des autres fenêtres, *Enregistrement de l'écran*. L'arrêt d'urgence est `Ctrl + Option + Échap` et l'anti-veille utilise `caffeinate`. Ce portage est compilé et vérifié par l'intégration continue de GitHub mais **n'a pas encore tourné sur un vrai Mac** : n'hésite pas à signaler ce que tu constates.
 
@@ -90,6 +94,12 @@ python tests/ui_test.py target/release/autokey.exe
 
 ```bash
 bash tests/linux_smoke.sh target/release/autokey
+```
+
+`tests/wayland_smoke.sh` (session Wayland avec `gedit`) tape un texte varié par le portail et compare le résultat ; tu cliques sur *Autoriser* dans la fenêtre du système quand elle apparaît.
+
+```bash
+bash tests/wayland_smoke.sh target/release/autokey
 ```
 
 | Variable d'environnement | Effet |

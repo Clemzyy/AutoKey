@@ -22,6 +22,7 @@ fn main() -> eframe::Result {
     if std::env::var_os("AUTOKEY_SETTINGS").is_none() && engine::another_instance_running(TITLE) {
         return Ok(());
     }
+    engine::init(); // Wayland : rétablit sans fenêtre de confirmation un accord déjà mémorisé
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(TITLE)
