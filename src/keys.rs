@@ -104,7 +104,16 @@ impl Named {
             Named::Esc
         } else if is(&["tab", "tabulation", "tabulador"]) {
             Named::Tab
-        } else if is(&["capslock", "caps lock", "caps", "verr.maj", "verr maj", "bloq mayús", "bloq mayus", "大写锁定"]) {
+        } else if is(&[
+            "capslock",
+            "caps lock",
+            "caps",
+            "verr.maj",
+            "verr maj",
+            "bloq mayús",
+            "bloq mayus",
+            "大写锁定",
+        ]) {
             Named::Caps
         } else if is(&["enter", "return", "entrée", "entree", "intro", "回车"]) {
             Named::Enter
@@ -236,32 +245,165 @@ pub struct KbLayout {
 }
 
 pub const LAYOUTS: &[KbLayout] = &[
-    KbLayout { id: "azerty-fr", name: "AZERTY – FR", iso: true, langids: &[0x040C, 0x0C0C, 0x140C],
-        rows: ["² & é \" ' ( - è _ ç à ) =", "a z e r t y u i o p ^ $", "q s d f g h j k l m ù *", "< w x c v b n , ; : !"] },
-    KbLayout { id: "azerty-be", name: "AZERTY – BE", iso: true, langids: &[0x080C, 0x0813],
-        rows: ["² & é \" ' ( § è ! ç à ) -", "a z e r t y u i o p ^ $", "q s d f g h j k l m ù µ", "< w x c v b n , ; : ="] },
-    KbLayout { id: "qwerty-us", name: "QWERTY – US", iso: false, langids: &[0x0409, 0x1009, 0x0C09, 0x1409],
-        rows: ["` 1 2 3 4 5 6 7 8 9 0 - =", "q w e r t y u i o p [ ] \\", "a s d f g h j k l ; '", "z x c v b n m , . /"] },
-    KbLayout { id: "qwerty-uk", name: "QWERTY – UK", iso: true, langids: &[0x0809],
-        rows: ["` 1 2 3 4 5 6 7 8 9 0 - =", "q w e r t y u i o p [ ]", "a s d f g h j k l ; ' #", "\\ z x c v b n m , . /"] },
-    KbLayout { id: "qwertz-de", name: "QWERTZ – DE", iso: true, langids: &[0x0407, 0x0C07, 0x1407],
-        rows: ["^ 1 2 3 4 5 6 7 8 9 0 ß ´", "q w e r t z u i o p ü +", "a s d f g h j k l ö ä #", "< y x c v b n m , . -"] },
-    KbLayout { id: "qwertz-ch", name: "QWERTZ – CH", iso: true, langids: &[0x0807, 0x100C],
-        rows: ["§ 1 2 3 4 5 6 7 8 9 0 ' ^", "q w e r t z u i o p ü ¨", "a s d f g h j k l ö ä $", "< y x c v b n m , . -"] },
-    KbLayout { id: "qwerty-es", name: "QWERTY – ES", iso: true, langids: &[0x040A, 0x0C0A],
-        rows: ["º 1 2 3 4 5 6 7 8 9 0 ' ¡", "q w e r t y u i o p ` +", "a s d f g h j k l ñ ´ ç", "< z x c v b n m , . -"] },
-    KbLayout { id: "qwerty-it", name: "QWERTY – IT", iso: true, langids: &[0x0410],
-        rows: ["\\ 1 2 3 4 5 6 7 8 9 0 ' ì", "q w e r t y u i o p è +", "a s d f g h j k l ò à ù", "< z x c v b n m , . -"] },
-    KbLayout { id: "qwerty-br", name: "QWERTY – BR", iso: true, langids: &[0x0416, 0x0816],
-        rows: ["' 1 2 3 4 5 6 7 8 9 0 - =", "q w e r t y u i o p ´ [", "a s d f g h j k l ç ~ ]", "\\ z x c v b n m , . ;"] },
-    KbLayout { id: "ru", name: "ЙЦУКЕН – RU", iso: true, langids: &[0x0419, 0x0422, 0x0423],
-        rows: ["ё 1 2 3 4 5 6 7 8 9 0 - =", "й ц у к е н г ш щ з х ъ", "ф ы в а п р о л д ж э \\", "/ я ч с м и т ь б ю ."] },
-    KbLayout { id: "ar", name: "العربية", iso: false, langids: &[0x0401, 0x0801, 0x0C01, 0x1001, 0x1401, 0x1801, 0x1C01, 0x2001, 0x2401, 0x2801, 0x2C01, 0x3001, 0x3401, 0x3801, 0x3C01, 0x4001],
-        rows: ["ذ 1 2 3 4 5 6 7 8 9 0 - =", "ض ص ث ق ف غ ع ه خ ح ج د \\", "ش س ي ب ل ا ت ن م ك ط", "ئ ء ؤ ر لا ى ة و ز ظ"] },
-    KbLayout { id: "dvorak", name: "Dvorak", iso: false, langids: &[],
-        rows: ["` 1 2 3 4 5 6 7 8 9 0 [ ]", "' , . p y f g c r l / = \\", "a o e u i d h t n s -", "; q j k x b m w v z"] },
-    KbLayout { id: "colemak", name: "Colemak", iso: false, langids: &[],
-        rows: ["` 1 2 3 4 5 6 7 8 9 0 - =", "q w f p g j l u y ; [ ] \\", "a r s t d h n e i o '", "z x c v b k m , . /"] },
+    KbLayout {
+        id: "azerty-fr",
+        name: "AZERTY – FR",
+        iso: true,
+        langids: &[0x040C, 0x0C0C, 0x140C],
+        rows: [
+            "² & é \" ' ( - è _ ç à ) =",
+            "a z e r t y u i o p ^ $",
+            "q s d f g h j k l m ù *",
+            "< w x c v b n , ; : !",
+        ],
+    },
+    KbLayout {
+        id: "azerty-be",
+        name: "AZERTY – BE",
+        iso: true,
+        langids: &[0x080C, 0x0813],
+        rows: [
+            "² & é \" ' ( § è ! ç à ) -",
+            "a z e r t y u i o p ^ $",
+            "q s d f g h j k l m ù µ",
+            "< w x c v b n , ; : =",
+        ],
+    },
+    KbLayout {
+        id: "qwerty-us",
+        name: "QWERTY – US",
+        iso: false,
+        langids: &[0x0409, 0x1009, 0x0C09, 0x1409],
+        rows: [
+            "` 1 2 3 4 5 6 7 8 9 0 - =",
+            "q w e r t y u i o p [ ] \\",
+            "a s d f g h j k l ; '",
+            "z x c v b n m , . /",
+        ],
+    },
+    KbLayout {
+        id: "qwerty-uk",
+        name: "QWERTY – UK",
+        iso: true,
+        langids: &[0x0809],
+        rows: [
+            "` 1 2 3 4 5 6 7 8 9 0 - =",
+            "q w e r t y u i o p [ ]",
+            "a s d f g h j k l ; ' #",
+            "\\ z x c v b n m , . /",
+        ],
+    },
+    KbLayout {
+        id: "qwertz-de",
+        name: "QWERTZ – DE",
+        iso: true,
+        langids: &[0x0407, 0x0C07, 0x1407],
+        rows: [
+            "^ 1 2 3 4 5 6 7 8 9 0 ß ´",
+            "q w e r t z u i o p ü +",
+            "a s d f g h j k l ö ä #",
+            "< y x c v b n m , . -",
+        ],
+    },
+    KbLayout {
+        id: "qwertz-ch",
+        name: "QWERTZ – CH",
+        iso: true,
+        langids: &[0x0807, 0x100C],
+        rows: [
+            "§ 1 2 3 4 5 6 7 8 9 0 ' ^",
+            "q w e r t z u i o p ü ¨",
+            "a s d f g h j k l ö ä $",
+            "< y x c v b n m , . -",
+        ],
+    },
+    KbLayout {
+        id: "qwerty-es",
+        name: "QWERTY – ES",
+        iso: true,
+        langids: &[0x040A, 0x0C0A],
+        rows: [
+            "º 1 2 3 4 5 6 7 8 9 0 ' ¡",
+            "q w e r t y u i o p ` +",
+            "a s d f g h j k l ñ ´ ç",
+            "< z x c v b n m , . -",
+        ],
+    },
+    KbLayout {
+        id: "qwerty-it",
+        name: "QWERTY – IT",
+        iso: true,
+        langids: &[0x0410],
+        rows: [
+            "\\ 1 2 3 4 5 6 7 8 9 0 ' ì",
+            "q w e r t y u i o p è +",
+            "a s d f g h j k l ò à ù",
+            "< z x c v b n m , . -",
+        ],
+    },
+    KbLayout {
+        id: "qwerty-br",
+        name: "QWERTY – BR",
+        iso: true,
+        langids: &[0x0416, 0x0816],
+        rows: [
+            "' 1 2 3 4 5 6 7 8 9 0 - =",
+            "q w e r t y u i o p ´ [",
+            "a s d f g h j k l ç ~ ]",
+            "\\ z x c v b n m , . ;",
+        ],
+    },
+    KbLayout {
+        id: "ru",
+        name: "ЙЦУКЕН – RU",
+        iso: true,
+        langids: &[0x0419, 0x0422, 0x0423],
+        rows: [
+            "ё 1 2 3 4 5 6 7 8 9 0 - =",
+            "й ц у к е н г ш щ з х ъ",
+            "ф ы в а п р о л д ж э \\",
+            "/ я ч с м и т ь б ю .",
+        ],
+    },
+    KbLayout {
+        id: "ar",
+        name: "العربية",
+        iso: false,
+        langids: &[
+            0x0401, 0x0801, 0x0C01, 0x1001, 0x1401, 0x1801, 0x1C01, 0x2001, 0x2401, 0x2801, 0x2C01,
+            0x3001, 0x3401, 0x3801, 0x3C01, 0x4001,
+        ],
+        rows: [
+            "ذ 1 2 3 4 5 6 7 8 9 0 - =",
+            "ض ص ث ق ف غ ع ه خ ح ج د \\",
+            "ش س ي ب ل ا ت ن م ك ط",
+            "ئ ء ؤ ر لا ى ة و ز ظ",
+        ],
+    },
+    KbLayout {
+        id: "dvorak",
+        name: "Dvorak",
+        iso: false,
+        langids: &[],
+        rows: [
+            "` 1 2 3 4 5 6 7 8 9 0 [ ]",
+            "' , . p y f g c r l / = \\",
+            "a o e u i d h t n s -",
+            "; q j k x b m w v z",
+        ],
+    },
+    KbLayout {
+        id: "colemak",
+        name: "Colemak",
+        iso: false,
+        langids: &[],
+        rows: [
+            "` 1 2 3 4 5 6 7 8 9 0 - =",
+            "q w f p g j l u y ; [ ] \\",
+            "a r s t d h n e i o '",
+            "z x c v b k m , . /",
+        ],
+    },
 ];
 
 pub fn by_id(id: &str) -> &'static KbLayout {
@@ -270,7 +412,10 @@ pub fn by_id(id: &str) -> &'static KbLayout {
 
 /// Disposition correspondant à la langue de saisie active du système (le chinois, le japonais… utilisent le QWERTY US).
 pub fn detect() -> &'static KbLayout {
-    if let Some(l) = std::env::var("AUTOKEY_LAYOUT").ok().and_then(|id| LAYOUTS.iter().find(|l| l.id == id)) {
+    if let Some(l) = std::env::var("AUTOKEY_LAYOUT")
+        .ok()
+        .and_then(|id| LAYOUTS.iter().find(|l| l.id == id))
+    {
         return l;
     }
     system_layout().unwrap_or(&LAYOUTS[2])
@@ -284,7 +429,13 @@ fn system_layout() -> Option<&'static KbLayout> {
     LAYOUTS
         .iter()
         .find(|l| l.langids.contains(&langid))
-        .or_else(|| if langid & 0x3FF == 0x01 { LAYOUTS.iter().find(|l| l.id == "ar") } else { None })
+        .or_else(|| {
+            if langid & 0x3FF == 0x01 {
+                LAYOUTS.iter().find(|l| l.id == "ar")
+            } else {
+                None
+            }
+        })
 }
 
 /// Linux : première disposition XKB déclarée (« fr », « us,ru »…) et sa variante (« dvorak », « colemak »…).
@@ -292,7 +443,12 @@ fn system_layout() -> Option<&'static KbLayout> {
 fn system_layout() -> Option<&'static KbLayout> {
     let (layout, variant) = crate::engine::xkb_layout()?;
     let first = layout.split(',').next()?.trim().to_lowercase();
-    let var = variant.split(',').next().unwrap_or("").trim().to_lowercase();
+    let var = variant
+        .split(',')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
     let id = if var.starts_with("dvorak") {
         "dvorak"
     } else if var.starts_with("colemak") {
@@ -317,15 +473,27 @@ fn system_layout() -> Option<&'static KbLayout> {
 }
 
 fn key(label: &str, tok: Tok, w: f32) -> KeyDef {
-    KeyDef { label: label.to_string(), tok, w }
+    KeyDef {
+        label: label.to_string(),
+        tok,
+        w,
+    }
 }
 
 fn named(n: Named, w: f32) -> KeyDef {
-    KeyDef { label: n.label(), tok: Tok::Named(n), w }
+    KeyDef {
+        label: n.label(),
+        tok: Tok::Named(n),
+        w,
+    }
 }
 
 fn modifier(m: Modk, w: f32) -> KeyDef {
-    KeyDef { label: m.label(), tok: Tok::Mod(m), w }
+    KeyDef {
+        label: m.label(),
+        tok: Tok::Mod(m),
+        w,
+    }
 }
 
 /// Touches produisant des caractères, à partir d'une rangée « a z e r t… ».

@@ -47,7 +47,9 @@ fn set_state(s: State) {
 
 /// Fichier où est gardé le jeton qui rend l'autorisation permanente.
 fn token_path() -> std::path::PathBuf {
-    crate::model::config_dir().join("AutoKey").join("wayland-token")
+    crate::model::config_dir()
+        .join("AutoKey")
+        .join("wayland-token")
 }
 
 /// Vrai si un accord mémorisé existe : l'autorisation peut alors être rétablie sans fenêtre de confirmation.
@@ -66,7 +68,10 @@ pub fn request() {
         *st = State::Pending;
     }
     std::thread::spawn(|| {
-        let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
             Ok(r) => r,
             Err(e) => return set_state(State::Denied(e.to_string())),
         };
@@ -86,8 +91,14 @@ pub fn request() {
 async fn session() -> Result<(), State> {
     let denied = |e: ashpd::Error| State::Denied(e.to_string());
     let proxy = RemoteDesktop::new().await.map_err(|_| State::Unavailable)?;
-    let session = proxy.create_session(Default::default()).await.map_err(|_| State::Unavailable)?;
-    let saved = std::fs::read_to_string(token_path()).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    let session = proxy
+        .create_session(Default::default())
+        .await
+        .map_err(|_| State::Unavailable)?;
+    let saved = std::fs::read_to_string(token_path())
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
     proxy
         .select_devices(
             &session,
@@ -98,7 +109,12 @@ async fn session() -> Result<(), State> {
         )
         .await
         .map_err(denied)?;
-    let response = proxy.start(&session, None, Default::default()).await.map_err(denied)?.response().map_err(denied)?;
+    let response = proxy
+        .start(&session, None, Default::default())
+        .await
+        .map_err(denied)?
+        .response()
+        .map_err(denied)?;
     if !response.devices().contains(DeviceType::Keyboard) {
         return Err(State::Denied(String::new()));
     }
@@ -114,10 +130,22 @@ async fn session() -> Result<(), State> {
         *slot = Some(tx);
     }
     set_state(State::Granted);
-    let key = |down: bool| if down { KeyState::Pressed } else { KeyState::Released };
+    let key = |down: bool| {
+        if down {
+            KeyState::Pressed
+        } else {
+            KeyState::Released
+        }
+    };
     while let Some(cmd) = rx.recv().await {
         let (ok, reply) = match cmd {
-            Cmd::Keycode(code, down, reply) => (proxy.notify_keyboard_keycode(&session, code, key(down), Default::default()).await.is_ok(), reply),
+            Cmd::Keycode(code, down, reply) => (
+                proxy
+                    .notify_keyboard_keycode(&session, code, key(down), Default::default())
+                    .await
+                    .is_ok(),
+                reply,
+            ),
         };
         let _ = reply.send(ok);
         if !ok {
@@ -129,7 +157,11 @@ async fn session() -> Result<(), State> {
 
 fn send(make: impl FnOnce(SyncSender<bool>) -> Cmd) -> bool {
     let (reply, wait) = sync_channel(1);
-    let sent = TX.lock().ok().and_then(|tx| tx.as_ref().map(|tx| tx.send(make(reply)).is_ok())).unwrap_or(false);
+    let sent = TX
+        .lock()
+        .ok()
+        .and_then(|tx| tx.as_ref().map(|tx| tx.send(make(reply)).is_ok()))
+        .unwrap_or(false);
     sent && wait.recv_timeout(Duration::from_secs(3)).unwrap_or(false)
 }
 

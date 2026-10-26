@@ -8,28 +8,32 @@ use std::time::Duration;
 use super::Target;
 use crate::i18n::{self, Msg};
 use crate::keys::Modk;
-use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, POINT, RECT};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, POINT, RECT,
+};
+use windows_sys::Win32::Graphics::Gdi::{CreateFontW, DeleteObject};
 use windows_sys::Win32::System::Power::{
     SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
 };
-use windows_sys::Win32::Graphics::Gdi::{CreateFontW, DeleteObject};
 use windows_sys::Win32::System::Threading::{
-    AttachThreadInput, CreateMutexW, GetCurrentProcessId, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+    AttachThreadInput, CreateMutexW, GetCurrentProcessId, GetCurrentThreadId, OpenProcess,
+    QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
-use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    keybd_event, GetAsyncKeyState, GetKeyboardLayout, MapVirtualKeyExW, SendInput, VkKeyScanExW, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE, MOUSEEVENTF_LEFTDOWN,
+    keybd_event, GetAsyncKeyState, GetKeyboardLayout, MapVirtualKeyExW, SendInput, VkKeyScanExW,
+    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+    KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEINPUT, VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_MENU, VK_RBUTTON,
 };
+use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW, GetCursorPos,
-    GetForegroundWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
-    GetSystemMetrics, IsWindowVisible, SetCursorPos, SetForegroundWindow, ShowWindowAsync, WindowFromPoint, GA_ROOT, SW_RESTORE,
-    CreateWindowExW, DestroyWindow, FindWindowW, DispatchMessageW, PeekMessageW, SendMessageW, TranslateMessage, MSG,
-    PM_REMOVE, SM_SWAPBUTTON, WM_SETFONT, WS_BORDER, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
+    BringWindowToTop, CreateWindowExW, DestroyWindow, DispatchMessageW, EnumWindows, FindWindowW,
+    GetAncestor, GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowRect,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, PeekMessageW,
+    SendMessageW, SetCursorPos, SetForegroundWindow, ShowWindowAsync, TranslateMessage,
+    WindowFromPoint, GA_ROOT, MSG, PM_REMOVE, SM_SWAPBUTTON, SW_RESTORE, WM_SETFONT, WS_BORDER,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
 
 fn hwnd(h: isize) -> HWND {
@@ -46,7 +50,15 @@ fn send_input(input: INPUT) -> bool {
 fn key_input(w_vk: u16, scan: u16, flags: u32) -> INPUT {
     INPUT {
         r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: w_vk, wScan: scan, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: w_vk,
+                wScan: scan,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
     }
 }
 
@@ -85,7 +97,11 @@ pub fn press_char(c: char) -> bool {
     // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         let fg = GetForegroundWindow();
-        let thread = if fg.is_null() { 0 } else { GetWindowThreadProcessId(fg, std::ptr::null_mut()) };
+        let thread = if fg.is_null() {
+            0
+        } else {
+            GetWindowThreadProcessId(fg, std::ptr::null_mut())
+        };
         let hkl = GetKeyboardLayout(thread);
         let r = VkKeyScanExW(units[0], hkl);
         if r == -1 {
@@ -129,7 +145,11 @@ pub fn press_char(c: char) -> bool {
 /// Empêche la veille (et l'extinction de l'écran) tant qu'une action est armée.
 /// À appeler depuis le même thread pour l'activer et le désactiver.
 pub fn keep_awake(on: bool) {
-    let flags = if on { ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED } else { ES_CONTINUOUS };
+    let flags = if on {
+        ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+    } else {
+        ES_CONTINUOUS
+    };
     // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         SetThreadExecutionState(flags);
@@ -194,7 +214,12 @@ pub fn win_exe(h: isize) -> String {
 }
 
 pub fn win_rect(h: isize) -> (i32, i32, i32, i32) {
-    let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    let mut r = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
     // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         GetWindowRect(hwnd(h), &mut r);
@@ -245,7 +270,16 @@ pub fn root_at(x: i32, y: i32) -> isize {
 fn mouse_flag(flag: u32) -> bool {
     send_input(INPUT {
         r#type: INPUT_MOUSE,
-        Anonymous: INPUT_0 { mi: MOUSEINPUT { dx: 0, dy: 0, mouseData: 0, dwFlags: flag, time: 0, dwExtraInfo: 0 } },
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx: 0,
+                dy: 0,
+                mouseData: 0,
+                dwFlags: flag,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
     })
 }
 
@@ -287,8 +321,15 @@ pub fn find_window(t: &Target) -> Option<isize> {
     unsafe {
         EnumWindows(Some(collect), &mut all as *mut Vec<isize> as LPARAM);
     }
-    let found: Vec<isize> = all.into_iter().filter(|h| win_class(*h) == t.cls && win_exe(*h) == t.exe).collect();
-    found.iter().copied().find(|h| win_title(*h) == t.title).or_else(|| found.first().copied())
+    let found: Vec<isize> = all
+        .into_iter()
+        .filter(|h| win_class(*h) == t.cls && win_exe(*h) == t.exe)
+        .collect();
+    found
+        .iter()
+        .copied()
+        .find(|h| win_title(*h) == t.title)
+        .or_else(|| found.first().copied())
 }
 
 /// Amène la fenêtre au premier plan (la restaure si réduite). Vrai si réussi ; `stop` permet d'interrompre l'attente.
@@ -304,7 +345,11 @@ pub fn focus_window(h: isize, stop: &dyn Fn() -> bool) -> bool {
                 return true;
             }
             let cur = GetCurrentThreadId();
-            let fg_thread = if fg.is_null() { 0 } else { GetWindowThreadProcessId(fg, std::ptr::null_mut()) };
+            let fg_thread = if fg.is_null() {
+                0
+            } else {
+                GetWindowThreadProcessId(fg, std::ptr::null_mut())
+            };
             if attempt > 0 {
                 // 2e essai : touche Alt « neutre » pour lever le blocage de Windows
                 keybd_event(0x12, 0, 0, 0);
@@ -341,7 +386,14 @@ pub fn open_url(url: &str) {
     let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
     // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
-        ShellExecuteW(std::ptr::null_mut(), wide("open").as_ptr(), wide(url).as_ptr(), std::ptr::null(), std::ptr::null(), 1);
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            wide("open").as_ptr(),
+            wide(url).as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            1,
+        );
     }
 }
 
@@ -353,7 +405,11 @@ pub fn another_instance_running(window_title: &str) -> bool {
     // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         // le handle n'est jamais fermé : le mutex vit aussi longtemps que le processus
-        CreateMutexW(std::ptr::null(), 0, wide("Local\\AutoKey.SingleInstance").as_ptr());
+        CreateMutexW(
+            std::ptr::null(),
+            0,
+            wide("Local\\AutoKey.SingleInstance").as_ptr(),
+        );
         if GetLastError() != ERROR_ALREADY_EXISTS {
             return false;
         }
@@ -394,7 +450,10 @@ impl Banner {
         let (c2, text) = (close.clone(), text.to_string());
         // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
         let thread = std::thread::spawn(move || unsafe { banner_thread(&text, &c2) });
-        Banner { close, thread: Some(thread) }
+        Banner {
+            close,
+            thread: Some(thread),
+        }
     }
 }
 
@@ -426,7 +485,22 @@ unsafe fn banner_thread(text: &str, close: &AtomicBool) {
         std::ptr::null_mut(),
         std::ptr::null(),
     );
-    let font = CreateFontW(-((22.0 * scale) as i32), 0, 0, 0, 700, 0, 0, 0, 1, 0, 0, 5, 0, wide("Segoe UI").as_ptr());
+    let font = CreateFontW(
+        -((22.0 * scale) as i32),
+        0,
+        0,
+        0,
+        700,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        5,
+        0,
+        wide("Segoe UI").as_ptr(),
+    );
     if !hwnd.is_null() {
         SendMessageW(hwnd, WM_SETFONT, font as usize, 1);
     }

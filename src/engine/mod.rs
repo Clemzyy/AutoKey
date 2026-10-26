@@ -9,14 +9,14 @@ use crate::i18n::{self, Msg};
 
 #[cfg(target_os = "linux")]
 mod linux;
-#[cfg(target_os = "linux")]
-mod wayland;
-#[cfg(target_os = "linux")]
-mod xkb;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "linux")]
+mod wayland;
 #[cfg(windows)]
 mod windows;
+#[cfg(target_os = "linux")]
+mod xkb;
 
 #[cfg(target_os = "linux")]
 pub use linux::*;
@@ -106,7 +106,11 @@ pub fn target_at(x: i32, y: i32) -> Option<(Target, isize)> {
 pub fn click_target(t: &Target, stop: &dyn Fn() -> bool) -> Result<(), String> {
     let h = find_window(t).ok_or_else(|| i18n::t(Msg::ErrWindowNotFound).to_string())?;
     if !focus_window(h, stop) {
-        return Err(if stop() { i18n::t(Msg::ErrCancelled).to_string() } else { i18n::t(Msg::ErrForeground).to_string() });
+        return Err(if stop() {
+            i18n::t(Msg::ErrCancelled).to_string()
+        } else {
+            i18n::t(Msg::ErrForeground).to_string()
+        });
     }
     let (l, tp, r, b) = win_rect(h);
     let (w, hgt) = (r - l, b - tp);
@@ -114,7 +118,10 @@ pub fn click_target(t: &Target, stop: &dyn Fn() -> bool) -> Result<(), String> {
         (l + t.dx, tp + t.dy)
     } else {
         // fenêtre redimensionnée : position proportionnelle
-        (l + (t.fx * w as f64) as i32, tp + (t.fy * hgt as f64) as i32)
+        (
+            l + (t.fx * w as f64) as i32,
+            tp + (t.fy * hgt as f64) as i32,
+        )
     };
     if root_at(x, y) != h {
         return Err(i18n::t(Msg::ErrCovered).to_string());

@@ -22,7 +22,14 @@ impl Lang {
 
     /// Nom de la langue, écrit dans cette langue.
     pub fn name(self) -> &'static str {
-        ["Français", "English", "Español", "Русский", "العربية", "中文"][self.index()]
+        [
+            "Français",
+            "English",
+            "Español",
+            "Русский",
+            "العربية",
+            "中文",
+        ][self.index()]
     }
 
     pub fn index(self) -> usize {
@@ -31,7 +38,11 @@ impl Lang {
 
     pub fn from_code(code: &str) -> Option<Lang> {
         let c = code.trim().to_lowercase();
-        Lang::ALL.into_iter().find(|l| c == l.code() || c.starts_with(&format!("{}-", l.code())) || c.starts_with(&format!("{}_", l.code())))
+        Lang::ALL.into_iter().find(|l| {
+            c == l.code()
+                || c.starts_with(&format!("{}-", l.code()))
+                || c.starts_with(&format!("{}_", l.code()))
+        })
     }
 }
 
@@ -47,10 +58,15 @@ pub fn set_lang(l: Lang) {
 
 /// Langue de Windows (ou celle de la variable AUTOKEY_LANG pour les tests) ; anglais par défaut.
 pub fn detect() -> Lang {
-    if let Some(l) = std::env::var("AUTOKEY_LANG").ok().and_then(|v| Lang::from_code(&v)) {
+    if let Some(l) = std::env::var("AUTOKEY_LANG")
+        .ok()
+        .and_then(|v| Lang::from_code(&v))
+    {
         return l;
     }
-    system_locale().and_then(|name| Lang::from_code(&name)).unwrap_or(Lang::En)
+    system_locale()
+        .and_then(|name| Lang::from_code(&name))
+        .unwrap_or(Lang::En)
 }
 
 #[cfg(windows)]
@@ -70,8 +86,6 @@ fn system_locale() -> Option<String> {
         .filter_map(|k| std::env::var(k).ok())
         .find(|v| !v.is_empty() && v != "C" && v != "POSIX")
 }
-
-
 
 macro_rules! messages {
     ($($name:ident => [$fr:expr, $en:expr, $es:expr, $ru:expr, $ar:expr, $zh:expr]),* $(,)?) => {
@@ -226,7 +240,11 @@ pub fn tf(m: Msg, args: &[&dyn Display]) -> String {
     let mut s = t(m).to_string();
     for (i, a) in args.iter().enumerate() {
         let v = a.to_string();
-        let v = if lang() == Lang::Ar { format!("\u{2066}{v}\u{2069}") } else { v };
+        let v = if lang() == Lang::Ar {
+            format!("\u{2066}{v}\u{2069}")
+        } else {
+            v
+        };
         s = s.replace(&format!("{{{i}}}"), &v);
     }
     s

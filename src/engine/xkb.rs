@@ -27,7 +27,11 @@ pub fn build(layout: &str, variant: &str) -> Option<(u8, usize, Vec<u32>)> {
             variant: variant.as_ptr(),
             options: ptr::null(),
         };
-        let keymap = (xkb.xkb_keymap_new_from_names)(context, &names, xkb_keymap_compile_flags::XKB_KEYMAP_COMPILE_NO_FLAGS);
+        let keymap = (xkb.xkb_keymap_new_from_names)(
+            context,
+            &names,
+            xkb_keymap_compile_flags::XKB_KEYMAP_COMPILE_NO_FLAGS,
+        );
         if keymap.is_null() {
             (xkb.xkb_context_unref)(context);
             return None;

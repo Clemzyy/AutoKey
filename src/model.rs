@@ -2,7 +2,9 @@
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use chrono::{
+    DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+};
 use serde_json::{json, Value};
 
 use crate::engine::Target;
@@ -77,7 +79,10 @@ pub struct Job {
 }
 
 pub fn now_secs() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 /// « bonjour[Entrée] » -> lettres + touches. Erreur si une touche entre crochets est inconnue.
@@ -90,7 +95,9 @@ pub fn parse(text: &str) -> Result<Vec<Item>, String> {
         if chars[i] == '[' {
             // le nom s'arrête au premier « ] » ; s'il contient un autre « [ », le « [ » courant est un simple caractère
             let end = chars[i + 1..].iter().position(|&c| c == ']');
-            if let Some(len) = end.filter(|&len| len > 0 && !chars[i + 1..i + 1 + len].contains(&'[')) {
+            if let Some(len) =
+                end.filter(|&len| len > 0 && !chars[i + 1..i + 1 + len].contains(&'['))
+            {
                 let name: String = chars[i + 1..i + 1 + len].iter().collect();
                 match keys::lookup(&name) {
                     Some(Tok::Named(n)) => {
@@ -116,7 +123,9 @@ fn local_from_naive(naive: NaiveDateTime) -> Option<DateTime<Local>> {
     match Local.from_local_datetime(&naive) {
         LocalResult::Single(t) => Some(t),
         LocalResult::Ambiguous(first, _) => Some(first),
-        LocalResult::None => Local.from_local_datetime(&(naive + Duration::hours(1))).earliest(),
+        LocalResult::None => Local
+            .from_local_datetime(&(naive + Duration::hours(1)))
+            .earliest(),
     }
 }
 
@@ -124,19 +133,30 @@ fn local_from_naive(naive: NaiveDateTime) -> Option<DateTime<Local>> {
 pub fn when(a: &Action) -> Result<f64, String> {
     let now = Local::now();
     let date = if a.use_date {
-        NaiveDate::parse_from_str(a.date.trim(), "%d/%m/%Y").or_else(|_| NaiveDate::parse_from_str(a.date.trim(), "%Y-%m-%d")).map_err(|_| i18n::t(Msg::DateFormatInvalid).to_string())?
+        NaiveDate::parse_from_str(a.date.trim(), "%d/%m/%Y")
+            .or_else(|_| NaiveDate::parse_from_str(a.date.trim(), "%Y-%m-%d"))
+            .map_err(|_| i18n::t(Msg::DateFormatInvalid).to_string())?
     } else {
         now.date_naive()
     };
-    let naive = date.and_hms_milli_opt(a.h, a.m, a.s, a.ms).ok_or_else(|| i18n::t(Msg::TimeInvalid).to_string())?;
-    let mut t = local_from_naive(naive).ok_or_else(|| i18n::t(Msg::LocalTimeNotFound).to_string())?;
+    let naive = date
+        .and_hms_milli_opt(a.h, a.m, a.s, a.ms)
+        .ok_or_else(|| i18n::t(Msg::TimeInvalid).to_string())?;
+    let mut t =
+        local_from_naive(naive).ok_or_else(|| i18n::t(Msg::LocalTimeNotFound).to_string())?;
     if t <= now {
         if a.use_date {
             return Err(i18n::t(Msg::DatePassed).to_string());
         }
-        let tomorrow = date.succ_opt().ok_or_else(|| i18n::t(Msg::DateFormatInvalid).to_string())?;
-        t = local_from_naive(tomorrow.and_hms_milli_opt(a.h, a.m, a.s, a.ms).ok_or_else(|| i18n::t(Msg::TimeInvalid).to_string())?)
-            .ok_or_else(|| i18n::t(Msg::LocalTimeNotFound).to_string())?;
+        let tomorrow = date
+            .succ_opt()
+            .ok_or_else(|| i18n::t(Msg::DateFormatInvalid).to_string())?;
+        t = local_from_naive(
+            tomorrow
+                .and_hms_milli_opt(a.h, a.m, a.s, a.ms)
+                .ok_or_else(|| i18n::t(Msg::TimeInvalid).to_string())?,
+        )
+        .ok_or_else(|| i18n::t(Msg::LocalTimeNotFound).to_string())?;
     }
     Ok(t.timestamp() as f64 + t.timestamp_subsec_millis() as f64 / 1000.0)
 }
@@ -149,10 +169,19 @@ pub fn make_job(a: &Action, ts: Option<f64>) -> Result<Job, String> {
             None => when(a)?,
         },
         items: parse(&a.text)?,
-        mods: a.mods.iter().filter_map(|m| Modk::parse(m)).map(Modk::scan).collect(),
+        mods: a
+            .mods
+            .iter()
+            .filter_map(|m| Modk::parse(m))
+            .map(Modk::scan)
+            .collect(),
         n: if a.repeat { a.rep.max(1) } else { 1 },
         gap: if a.repeat { a.gap as f64 / 1000.0 } else { 0.0 },
-        target: if a.use_target && crate::engine::targets_supported() { a.target.clone() } else { None },
+        target: if a.use_target && crate::engine::targets_supported() {
+            a.target.clone()
+        } else {
+            None
+        },
         back: a.back,
         minim: a.minim,
     })
@@ -167,7 +196,9 @@ pub fn config_dir() -> PathBuf {
     } else if cfg!(target_os = "macos") {
         home().map(|h| h.join("Library").join("Application Support"))
     } else {
-        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| home().map(|h| h.join(".config")))
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| home().map(|h| h.join(".config")))
     };
     dir.unwrap_or_else(|| PathBuf::from("."))
 }
@@ -195,8 +226,18 @@ fn target_from_json(v: &Value) -> Option<Target> {
     if s("exe").is_empty() {
         return None;
     }
-    Some(Target { hwnd: 0, exe: s("exe"), cls: s("cls"), title: s("title"), dx: i("dx"), dy: i("dy"), w: i("w"),
-                  h: i("h"), fx: f("fx"), fy: f("fy") })
+    Some(Target {
+        hwnd: 0,
+        exe: s("exe"),
+        cls: s("cls"),
+        title: s("title"),
+        dx: i("dx"),
+        dy: i("dy"),
+        w: i("w"),
+        h: i("h"),
+        fx: f("fx"),
+        fy: f("fy"),
+    })
 }
 
 pub fn action_to_json(a: &Action) -> Value {
@@ -212,7 +253,9 @@ fn num(v: Option<&Value>, default: u32) -> u32 {
         Some(Value::String(s)) => s.trim().parse::<f64>().ok(),
         _ => None,
     };
-    n.filter(|x| x.is_finite()).map(|x| x.round().clamp(0.0, u32::MAX as f64) as u32).unwrap_or(default)
+    n.filter(|x| x.is_finite())
+        .map(|x| x.round().clamp(0.0, u32::MAX as f64) as u32)
+        .unwrap_or(default)
 }
 
 pub fn action_from_json(v: &Value, base: &Action) -> Action {
@@ -223,12 +266,25 @@ pub fn action_from_json(v: &Value, base: &Action) -> Action {
         s: num(v.get("s"), base.s).min(59),
         ms: num(v.get("ms"), base.ms).min(999),
         use_date: b("use_date", base.use_date),
-        date: v.get("date").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| base.date.clone()),
-        text: v.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
+        date: v
+            .get("date")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| base.date.clone()),
+        text: v
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         mods: v
             .get("mods")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).filter_map(|m| Modk::parse(&m).map(|k| k.canonical().to_string())).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .filter_map(|m| Modk::parse(&m).map(|k| k.canonical().to_string()))
+                    .collect()
+            })
             .unwrap_or_default(),
         repeat: b("repeat", false),
         rep: num(v.get("rep"), 10).clamp(1, 9999),
@@ -244,7 +300,7 @@ pub struct Saved {
     pub editor: Action,
     pub list_mode: bool,
     pub actions: Vec<Action>,
-    pub lang: Option<String>,   // code de langue choisi par l'utilisateur (sinon : langue de Windows)
+    pub lang: Option<String>, // code de langue choisi par l'utilisateur (sinon : langue de Windows)
     pub layout: Option<String>, // identifiant de disposition choisi (sinon : détectée)
 }
 
@@ -272,7 +328,13 @@ pub fn save(s: &Saved) {
 
 pub fn load() -> Saved {
     let base = Action::default();
-    let empty = |base: Action| Saved { editor: base, list_mode: false, actions: vec![], lang: None, layout: None };
+    let empty = |base: Action| Saved {
+        editor: base,
+        list_mode: false,
+        actions: vec![],
+        lang: None,
+        layout: None,
+    };
     let path = settings_path();
     let Ok(text) = std::fs::read_to_string(&path) else {
         return empty(base);
@@ -299,5 +361,11 @@ pub fn load() -> Saved {
         .map(|a| a.iter().map(|x| action_from_json(x, &base)).collect())
         .unwrap_or_default();
     let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
-    Saved { editor, list_mode: v.get("list_mode").and_then(Value::as_bool).unwrap_or(false), actions, lang: text("lang"), layout: text("layout") }
+    Saved {
+        editor,
+        list_mode: v.get("list_mode").and_then(Value::as_bool).unwrap_or(false),
+        actions,
+        lang: text("lang"),
+        layout: text("layout"),
+    }
 }

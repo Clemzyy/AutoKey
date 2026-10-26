@@ -118,7 +118,14 @@ impl Shared {
 fn fmt_left(left: f64) -> String {
     let t = left.ceil() as u64;
     if left >= 3600.0 {
-        tf(Msg::CountdownHMS, &[&(t / 3600), &format!("{:02}", t % 3600 / 60), &format!("{:02}", t % 60)])
+        tf(
+            Msg::CountdownHMS,
+            &[
+                &(t / 3600),
+                &format!("{:02}", t % 3600 / 60),
+                &format!("{:02}", t % 60),
+            ],
+        )
     } else if left >= 60.0 {
         tf(Msg::CountdownMS, &[&(t / 60), &format!("{:02}", t % 60)])
     } else if left >= 10.0 {
@@ -143,7 +150,11 @@ fn wait_until(sh: &Shared, ctx: &egui::Context, ts: f64, name: &str) -> bool {
         // loin de l'heure, inutile de redessiner l'interface 5 fois par seconde
         let every = if left > 120.0 { 1000 } else { 200 };
         if last_status.elapsed() >= Duration::from_millis(every) {
-            sh.set_status(ctx, tf(Msg::WaitStatus, &[&name, &fmt_left(left)]), Kind::Wait);
+            sh.set_status(
+                ctx,
+                tf(Msg::WaitStatus, &[&name, &fmt_left(left)]),
+                Kind::Wait,
+            );
             last_status = Instant::now();
         }
         if left > 0.1 {
@@ -220,7 +231,11 @@ pub fn spawn_jobs(jobs: Vec<Job>, label: Option<String>, sh: Arc<Shared>, ctx: e
     sh.running.store(true, Ordering::SeqCst);
     std::thread::spawn(move || {
         if !ensure_input(&sh, &ctx) {
-            let (msg, kind) = if sh.stop() { (i18n::t(Msg::Cancelled), Kind::Warn) } else { (i18n::t(Msg::WaylandDenied), Kind::Err) };
+            let (msg, kind) = if sh.stop() {
+                (i18n::t(Msg::Cancelled), Kind::Warn)
+            } else {
+                (i18n::t(Msg::WaylandDenied), Kind::Err)
+            };
             sh.running.store(false, Ordering::SeqCst);
             sh.set_status(&ctx, msg, kind);
             return;
@@ -234,10 +249,21 @@ pub fn spawn_jobs(jobs: Vec<Job>, label: Option<String>, sh: Arc<Shared>, ctx: e
                 sh.minimize.store(true, Ordering::SeqCst);
                 ctx.request_repaint();
             }
-            let when: DateTime<Local> = DateTime::from_timestamp(job.ts as i64, 0).unwrap_or_default().into();
-            let name = label.clone().unwrap_or_else(|| tf(Msg::ActionName, &[&(k + 1), &total, &when.format("%H:%M:%S")]));
+            let when: DateTime<Local> = DateTime::from_timestamp(job.ts as i64, 0)
+                .unwrap_or_default()
+                .into();
+            let name = label.clone().unwrap_or_else(|| {
+                tf(
+                    Msg::ActionName,
+                    &[&(k + 1), &total, &when.format("%H:%M:%S")],
+                )
+            });
             // on attend le moment de préparer la fenêtre cible (ou directement l'heure s'il n'y a pas de cible)
-            let prep_at = if job.target.is_some() { job.ts - PREP_LEAD } else { job.ts };
+            let prep_at = if job.target.is_some() {
+                job.ts - PREP_LEAD
+            } else {
+                job.ts
+            };
             if !wait_until(&sh, &ctx, prep_at, &name) {
                 break;
             }
@@ -258,10 +284,20 @@ pub fn spawn_jobs(jobs: Vec<Job>, label: Option<String>, sh: Arc<Shared>, ctx: e
         let (msg, kind) = if sh.stop() {
             (i18n::t(Msg::Cancelled).to_string(), Kind::Warn)
         } else if !errors.is_empty() {
-            (tf(Msg::PartialErr, &[&done, &total, &errors.join(" ; ")]), Kind::Err)
+            (
+                tf(Msg::PartialErr, &[&done, &total, &errors.join(" ; ")]),
+                Kind::Err,
+            )
         } else {
             let at = Local::now().format("%H:%M:%S%.3f").to_string();
-            (if total > 1 { tf(Msg::DoneMany, &[&at, &done]) } else { tf(Msg::Done, &[&at]) }, Kind::Ok)
+            (
+                if total > 1 {
+                    tf(Msg::DoneMany, &[&at, &done])
+                } else {
+                    tf(Msg::Done, &[&at])
+                },
+                Kind::Ok,
+            )
         };
         engine::keep_awake(false);
         sh.running.store(false, Ordering::SeqCst);

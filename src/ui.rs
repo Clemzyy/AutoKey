@@ -5,8 +5,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use eframe::egui::{
-    self, pos2, vec2, Align, Align2, Color32, CornerRadius, CursorIcon, FontData, FontDefinitions, FontFamily,
-    FontId, Frame, Id, Layout, Margin, Rect, Response, RichText, ScrollArea, Sense, Stroke, Ui, ViewportCommand,
+    self, pos2, vec2, Align, Align2, Color32, CornerRadius, CursorIcon, FontData, FontDefinitions,
+    FontFamily, FontId, Frame, Id, Layout, Margin, Rect, Response, RichText, ScrollArea, Sense,
+    Stroke, Ui, ViewportCommand,
 };
 use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
@@ -85,11 +86,22 @@ fn resolve(file: &str) -> Option<(std::path::PathBuf, u32)> {
         return Some((std::path::PathBuf::from(file), 0));
     };
     // demande à fontconfig la police qui correspond (« sans-serif:bold », « :lang=zh-cn »…)
-    let out = std::process::Command::new("fc-match").args(["-f", "%{file}\n%{index}", pattern]).output().ok()?;
+    let out = std::process::Command::new("fc-match")
+        .args(["-f", "%{file}\n%{index}", pattern])
+        .output()
+        .ok()?;
     let text = String::from_utf8(out.stdout).ok()?;
     let mut lines = text.lines();
     let path = lines.next()?.trim();
-    (!path.is_empty()).then(|| (std::path::PathBuf::from(path), lines.next().and_then(|i| i.trim().parse().ok()).unwrap_or(0)))
+    (!path.is_empty()).then(|| {
+        (
+            std::path::PathBuf::from(path),
+            lines
+                .next()
+                .and_then(|i| i.trim().parse().ok())
+                .unwrap_or(0),
+        )
+    })
 }
 
 #[cfg(windows)]
@@ -104,10 +116,25 @@ mod sysfonts {
 
 #[cfg(target_os = "linux")]
 mod sysfonts {
-    pub const REGULAR: &[&str] = &["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "fc:sans-serif"];
-    pub const BOLD: &[&str] = &["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", "fc:sans-serif:bold"];
-    pub const SYMBOLS: &[&str] = &["/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf", "fc:symbols"];
-    pub const MONO: &[&str] = &["/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf", "fc:monospace"];
+    pub const REGULAR: &[&str] = &[
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "fc:sans-serif",
+    ];
+    pub const BOLD: &[&str] = &[
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "fc:sans-serif:bold",
+    ];
+    pub const SYMBOLS: &[&str] = &[
+        "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+        "fc:symbols",
+    ];
+    pub const MONO: &[&str] = &[
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "fc:monospace",
+    ];
     pub const HAN: &[&str] = &["fc::lang=zh-cn"];
     pub const HAN_BOLD: &[&str] = &["fc::lang=zh-cn:bold"];
 }
@@ -115,11 +142,25 @@ mod sysfonts {
 #[cfg(target_os = "macos")]
 mod sysfonts {
     // Arial Unicode couvre le latin, le cyrillique et l'arabe ; Apple Symbols complète les pictogrammes.
-    pub const REGULAR: &[&str] = &["/System/Library/Fonts/Supplemental/Arial Unicode.ttf", "/Library/Fonts/Arial Unicode.ttf", "/System/Library/Fonts/Helvetica.ttc"];
-    pub const BOLD: &[&str] = &["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Helvetica.ttc"];
+    pub const REGULAR: &[&str] = &[
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+    ];
+    pub const BOLD: &[&str] = &[
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+    ];
     pub const SYMBOLS: &[&str] = &["/System/Library/Fonts/Apple Symbols.ttf"];
-    pub const MONO: &[&str] = &["/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/Supplemental/Courier New.ttf"];
-    pub const HAN: &[&str] = &["/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/STHeiti Medium.ttc"];
+    pub const MONO: &[&str] = &[
+        "/System/Library/Fonts/Menlo.ttc",
+        "/System/Library/Fonts/Supplemental/Courier New.ttf",
+    ];
+    pub const HAN: &[&str] = &[
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+    ];
     pub const HAN_BOLD: &[&str] = &["/System/Library/Fonts/PingFang.ttc"];
 }
 
@@ -144,10 +185,36 @@ fn setup_fonts(ctx: &egui::Context, cjk: bool) {
     let mono = add("mono", sysfonts::MONO);
     let han = cjk && add("han", sysfonts::HAN);
     let han_bold = han && add("han_bold", sysfonts::HAN_BOLD);
-    let chain = |first: &[(&str, bool)]| -> Vec<String> { first.iter().filter(|(_, ok)| *ok).map(|(k, _)| k.to_string()).collect() };
-    fonts.families.insert(FontFamily::Proportional, chain(&[("regular", regular), ("symbols", sym), ("han", han)]));
-    fonts.families.insert(bold_family(), chain(&[("bold", bold), ("regular", regular), ("symbols", sym), ("han_bold", han_bold), ("han", han)]));
-    fonts.families.insert(FontFamily::Monospace, chain(&[("mono", mono), ("regular", regular), ("symbols", sym), ("han", han)]));
+    let chain = |first: &[(&str, bool)]| -> Vec<String> {
+        first
+            .iter()
+            .filter(|(_, ok)| *ok)
+            .map(|(k, _)| k.to_string())
+            .collect()
+    };
+    fonts.families.insert(
+        FontFamily::Proportional,
+        chain(&[("regular", regular), ("symbols", sym), ("han", han)]),
+    );
+    fonts.families.insert(
+        bold_family(),
+        chain(&[
+            ("bold", bold),
+            ("regular", regular),
+            ("symbols", sym),
+            ("han_bold", han_bold),
+            ("han", han),
+        ]),
+    );
+    fonts.families.insert(
+        FontFamily::Monospace,
+        chain(&[
+            ("mono", mono),
+            ("regular", regular),
+            ("symbols", sym),
+            ("han", han),
+        ]),
+    );
     ctx.set_fonts(fonts);
 }
 
@@ -191,7 +258,15 @@ fn bidi_runs(text: &str) -> Vec<(String, bool)> {
     let chars: Vec<char> = text.chars().collect();
     let strong: Vec<Option<bool>> = chars
         .iter()
-        .map(|&c| if is_rtl_char(c) { Some(true) } else if c.is_alphanumeric() || is_symbol(c) { Some(false) } else { None })
+        .map(|&c| {
+            if is_rtl_char(c) {
+                Some(true)
+            } else if c.is_alphanumeric() || is_symbol(c) {
+                Some(false)
+            } else {
+                None
+            }
+        })
         .collect();
     let base = strong.iter().flatten().next().copied().unwrap_or(false);
     let mut dirs: Vec<bool> = vec![base; chars.len()];
@@ -206,9 +281,17 @@ fn bidi_runs(text: &str) -> Vec<(String, bool)> {
         while i < chars.len() && strong[i].is_none() {
             i += 1;
         }
-        let prev = if start > 0 { strong[..start].iter().rev().flatten().next().copied() } else { None };
+        let prev = if start > 0 {
+            strong[..start].iter().rev().flatten().next().copied()
+        } else {
+            None
+        };
         let next = strong[i..].iter().flatten().next().copied();
-        let d = if prev.is_some() && prev == next { prev.unwrap_or(base) } else { base };
+        let d = if prev.is_some() && prev == next {
+            prev.unwrap_or(base)
+        } else {
+            base
+        };
         for slot in dirs.iter_mut().take(i).skip(start) {
             *slot = d;
         }
@@ -235,8 +318,20 @@ struct Run {
     galley: std::sync::Arc<egui::Galley>,
 }
 
-fn layout_runs(painter: &egui::Painter, text: &str, font: &FontId, color: Color32) -> (Vec<Run>, bool) {
-    let space = painter.layout_no_wrap("a a".into(), font.clone(), color).size().x - painter.layout_no_wrap("aa".into(), font.clone(), color).size().x;
+fn layout_runs(
+    painter: &egui::Painter,
+    text: &str,
+    font: &FontId,
+    color: Color32,
+) -> (Vec<Run>, bool) {
+    let space = painter
+        .layout_no_wrap("a a".into(), font.clone(), color)
+        .size()
+        .x
+        - painter
+            .layout_no_wrap("aa".into(), font.clone(), color)
+            .size()
+            .x;
     let runs = bidi_runs(text);
     let rtl_base = runs.first().is_some_and(|r| r.1);
     let out = runs
@@ -244,7 +339,11 @@ fn layout_runs(painter: &egui::Painter, text: &str, font: &FontId, color: Color3
         .map(|(t, _)| {
             let lead = t.chars().take_while(|c| *c == ' ').count() as f32 * space;
             let trail = t.chars().rev().take_while(|c| *c == ' ').count() as f32 * space;
-            Run { lead, trail, galley: painter.layout_no_wrap(t.trim().to_string(), font.clone(), color) }
+            Run {
+                lead,
+                trail,
+                galley: painter.layout_no_wrap(t.trim().to_string(), font.clone(), color),
+            }
         })
         .collect();
     (out, rtl_base)
@@ -252,20 +351,37 @@ fn layout_runs(painter: &egui::Painter, text: &str, font: &FontId, color: Color3
 
 fn text_width(painter: &egui::Painter, text: &str, font: &FontId) -> f32 {
     if needs_mixed(text) {
-        layout_runs(painter, text, font, TXT).0.iter().map(|r| r.lead + r.galley.size().x + r.trail).sum()
+        layout_runs(painter, text, font, TXT)
+            .0
+            .iter()
+            .map(|r| r.lead + r.galley.size().x + r.trail)
+            .sum()
     } else {
-        painter.layout_no_wrap(text.to_string(), font.clone(), TXT).size().x
+        painter
+            .layout_no_wrap(text.to_string(), font.clone(), TXT)
+            .size()
+            .x
     }
 }
 
 /// Comme `Painter::text`, mais gère les textes arabes contenant du latin, des chiffres ou des symboles.
-fn paint_text(painter: &egui::Painter, anchor: Align2, pos: egui::Pos2, text: &str, font: FontId, color: Color32) {
+fn paint_text(
+    painter: &egui::Painter,
+    anchor: Align2,
+    pos: egui::Pos2,
+    text: &str,
+    font: FontId,
+    color: Color32,
+) {
     if !needs_mixed(text) {
         painter.text(pos, anchor, text, font, color);
         return;
     }
     let (runs, rtl_base) = layout_runs(painter, text, &font, color);
-    let total: f32 = runs.iter().map(|r| r.lead + r.galley.size().x + r.trail).sum();
+    let total: f32 = runs
+        .iter()
+        .map(|r| r.lead + r.galley.size().x + r.trail)
+        .sum();
     let height = runs.iter().map(|r| r.galley.size().y).fold(0.0, f32::max);
     let left = match anchor.x() {
         Align::Min => pos.x,
@@ -296,15 +412,31 @@ fn paint_text(painter: &egui::Painter, anchor: Align2, pos: egui::Pos2, text: &s
 /// Étiquette sur une ligne tronquée à la largeur disponible, texte complet au survol.
 fn label_truncated(ui: &mut Ui, text: &str, size: f32, color: Color32) {
     if !needs_mixed(text) {
-        ui.add(egui::Label::new(RichText::new(text).font(fid(size)).color(color)).truncate()).on_hover_text(text);
+        ui.add(egui::Label::new(RichText::new(text).font(fid(size)).color(color)).truncate())
+            .on_hover_text(text);
         return;
     }
     let font = fid(size);
-    let h = ui.painter().layout_no_wrap("A".into(), font.clone(), color).size().y;
+    let h = ui
+        .painter()
+        .layout_no_wrap("A".into(), font.clone(), color)
+        .size()
+        .y;
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
     let rtl = bidi_runs(text).first().is_some_and(|r| r.1);
-    let (align, anchor_x) = if rtl { (Align2::RIGHT_CENTER, rect.right()) } else { (Align2::LEFT_CENTER, rect.left()) };
-    paint_text(&ui.painter().with_clip_rect(rect), align, pos2(anchor_x, rect.center().y), text, font, color);
+    let (align, anchor_x) = if rtl {
+        (Align2::RIGHT_CENTER, rect.right())
+    } else {
+        (Align2::LEFT_CENTER, rect.left())
+    };
+    paint_text(
+        &ui.painter().with_clip_rect(rect),
+        align,
+        pos2(anchor_x, rect.center().y),
+        text,
+        font,
+        color,
+    );
     resp.on_hover_text(text);
 }
 
@@ -326,7 +458,20 @@ struct Pill {
 
 impl Pill {
     fn new(text: impl Into<String>, base: Color32, hover: Color32, fg: Color32) -> Self {
-        Pill { text: text.into(), base, hover, fg, size: 13.0, h: 36.0, min_w: 0.0, pad: 14.0, radius: 10, enabled: true, full: false, left: false }
+        Pill {
+            text: text.into(),
+            base,
+            hover,
+            fg,
+            size: 13.0,
+            h: 36.0,
+            min_w: 0.0,
+            pad: 14.0,
+            radius: 10,
+            enabled: true,
+            full: false,
+            left: false,
+        }
     }
     fn size(mut self, s: f32) -> Self {
         self.size = s;
@@ -356,8 +501,19 @@ impl Pill {
     fn show(self, ui: &mut Ui) -> Response {
         let font = fid_b(self.size);
         let text_w = text_width(ui.painter(), &self.text, &font);
-        let w = if self.full { ui.available_width() } else { (text_w + 2.0 * self.pad).max(self.min_w) };
-        let (rect, resp) = ui.allocate_exact_size(vec2(w, self.h), if self.enabled { Sense::click() } else { Sense::hover() });
+        let w = if self.full {
+            ui.available_width()
+        } else {
+            (text_w + 2.0 * self.pad).max(self.min_w)
+        };
+        let (rect, resp) = ui.allocate_exact_size(
+            vec2(w, self.h),
+            if self.enabled {
+                Sense::click()
+            } else {
+                Sense::hover()
+            },
+        );
         reg(self.text.clone(), rect);
         let fill = if !self.enabled {
             self.base.gamma_multiply(0.35)
@@ -368,12 +524,31 @@ impl Pill {
         } else {
             self.base
         };
-        let fg = if self.enabled { self.fg } else { self.fg.gamma_multiply(0.45) };
-        ui.painter().rect_filled(rect, CornerRadius::same(self.radius), fill);
-        if self.left {
-            paint_text(ui.painter(), Align2::LEFT_CENTER, pos2(rect.left() + self.pad, rect.center().y), &self.text, font, fg);
+        let fg = if self.enabled {
+            self.fg
         } else {
-            paint_text(ui.painter(), Align2::CENTER_CENTER, rect.center(), &self.text, font, fg);
+            self.fg.gamma_multiply(0.45)
+        };
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(self.radius), fill);
+        if self.left {
+            paint_text(
+                ui.painter(),
+                Align2::LEFT_CENTER,
+                pos2(rect.left() + self.pad, rect.center().y),
+                &self.text,
+                font,
+                fg,
+            );
+        } else {
+            paint_text(
+                ui.painter(),
+                Align2::CENTER_CENTER,
+                rect.center(),
+                &self.text,
+                font,
+                fg,
+            );
         }
         if resp.hovered() && self.enabled {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
@@ -411,14 +586,22 @@ fn vlabel(ui: &mut Ui, text: &str, size: f32, color: Color32) {
     let font = fid(size);
     let w = text_width(ui.painter(), text, &font);
     let (rect, _) = ui.allocate_exact_size(vec2(w + 2.0, 36.0), Sense::hover());
-    paint_text(ui.painter(), Align2::LEFT_CENTER, pos2(rect.left(), rect.center().y), text, font, color);
+    paint_text(
+        ui.painter(),
+        Align2::LEFT_CENTER,
+        pos2(rect.left(), rect.center().y),
+        text,
+        font,
+        color,
+    );
 }
 
 /// Interrupteur façon « switch » (toute la zone est cliquable) ; renvoie vrai si la valeur a changé.
 fn toggle(ui: &mut Ui, on: &mut bool, text: &str) -> bool {
     let font = fid(13.0);
     let text_w = text_width(ui.painter(), text, &font);
-    let (rect, resp) = ui.allocate_exact_size(vec2(40.0 + 8.0 + text_w + 2.0, 36.0), Sense::click());
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(40.0 + 8.0 + text_w + 2.0, 36.0), Sense::click());
     reg(text, rect);
     let mut changed = false;
     if resp.clicked() {
@@ -430,16 +613,39 @@ fn toggle(ui: &mut Ui, on: &mut bool, text: &str) -> bool {
     }
     let track = Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), vec2(40.0, 22.0));
     let t = ui.ctx().animate_bool(resp.id, *on);
-    ui.painter().rect_filled(track, CornerRadius::same(11), GRIS.lerp_to_gamma(ACCENT, t));
+    ui.painter()
+        .rect_filled(track, CornerRadius::same(11), GRIS.lerp_to_gamma(ACCENT, t));
     let x = egui::lerp(track.left() + 11.0..=track.right() - 11.0, t);
-    ui.painter().circle_filled(pos2(x, track.center().y), 8.0, if *on { Color32::WHITE } else { hex(0xd0d4e4) });
-    paint_text(ui.painter(), Align2::LEFT_CENTER, pos2(rect.left() + 48.0, rect.center().y), text, font, TXT);
+    ui.painter().circle_filled(
+        pos2(x, track.center().y),
+        8.0,
+        if *on { Color32::WHITE } else { hex(0xd0d4e4) },
+    );
+    paint_text(
+        ui.painter(),
+        Align2::LEFT_CENTER,
+        pos2(rect.left() + 48.0, rect.center().y),
+        text,
+        font,
+        TXT,
+    );
     changed
 }
 
 /// Champ numérique : clic pour taper, glisser ou Ctrl + molette pour changer la valeur.
 #[allow(clippy::too_many_arguments)]
-fn num_field(ui: &mut Ui, v: &mut u32, lo: u32, hi: u32, width: f32, digits: usize, wrap: bool, step: u32, size: f32, enabled: bool) -> Rect {
+fn num_field(
+    ui: &mut Ui,
+    v: &mut u32,
+    lo: u32,
+    hi: u32,
+    width: f32,
+    digits: usize,
+    wrap: bool,
+    step: u32,
+    size: f32,
+    enabled: bool,
+) -> Rect {
     let mut field_rect = Rect::NOTHING;
     ui.scope(|ui| {
         {
@@ -492,7 +698,12 @@ fn combo(ui: &mut Ui, id: &str, selected: &str, width: f32, add: impl FnOnce(&mu
     ui.scope(|ui| {
         {
             let vis = &mut ui.style_mut().visuals;
-            for w in [&mut vis.widgets.inactive, &mut vis.widgets.hovered, &mut vis.widgets.active, &mut vis.widgets.open] {
+            for w in [
+                &mut vis.widgets.inactive,
+                &mut vis.widgets.hovered,
+                &mut vis.widgets.active,
+                &mut vis.widgets.open,
+            ] {
                 w.bg_fill = FIELD;
                 w.weak_bg_fill = FIELD;
                 w.corner_radius = CornerRadius::same(10);
@@ -515,11 +726,11 @@ fn combo(ui: &mut Ui, id: &str, selected: &str, width: f32, add: impl FnOnce(&mu
 // ---------- application ----------
 pub struct App {
     lang: Lang,
-    lang_user: Option<Lang>,      // langue choisie par l'utilisateur (sinon : celle de Windows)
+    lang_user: Option<Lang>, // langue choisie par l'utilisateur (sinon : celle de Windows)
     layout: &'static KbLayout,
     layout_user: Option<&'static str>,
-    rows: Vec<Vec<KeyDef>>,       // clavier à l'écran, dans la langue et la disposition courantes
-    cjk: bool,                    // police chinoise chargée
+    rows: Vec<Vec<KeyDef>>, // clavier à l'écran, dans la langue et la disposition courantes
+    cjk: bool,              // police chinoise chargée
     ed: Action,
     actions: Vec<Action>,
     list_mode: bool,
@@ -538,12 +749,12 @@ pub struct App {
     bench: Option<(Instant, Vec<f64>)>, // AUTOKEY_BENCH=1 : mesure le temps d'image pendant des redimensionnements
     state_path: Option<String>, // AUTOKEY_STATE=chemin.json : écrit l'état interne et la position des composants (tests)
     last_state: String,
-    shots_dir: Option<String>,  // AUTOKEY_SHOTS=dossier : capture à la demande (fichier req.txt contenant le nom)
+    shots_dir: Option<String>, // AUTOKEY_SHOTS=dossier : capture à la demande (fichier req.txt contenant le nom)
     shot_name: Option<String>,
-    autopick: bool,                      // AUTOKEY_AUTOPICK=1 : lance le repérage de zone dès le démarrage (tests)
-    autoarm: Option<String>,             // AUTOKEY_AUTOARM=N ou HH:MM:SS : arme l'action dès le démarrage (tests)
+    autopick: bool, // AUTOKEY_AUTOPICK=1 : lance le repérage de zone dès le démarrage (tests)
+    autoarm: Option<String>, // AUTOKEY_AUTOARM=N ou HH:MM:SS : arme l'action dès le démarrage (tests)
     shot: Option<String>, // AUTOKEY_SHOT=chemin.png : enregistre une capture de la fenêtre puis quitte (tests)
-    last_input: Input,    // dernier état de l'autorisation d'envoi de touches (Wayland), pour rafraîchir le message d'état
+    last_input: Input, // dernier état de l'autorisation d'envoi de touches (Wayland), pour rafraîchir le message d'état
 }
 
 const TEXT_ID: &str = "texte_a_envoyer";
@@ -552,14 +763,29 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let saved = model::load();
         let lang_user = saved.lang.as_deref().and_then(Lang::from_code);
-        let lang = std::env::var("AUTOKEY_LANG").ok().and_then(|v| Lang::from_code(&v)).or(lang_user).unwrap_or_else(i18n::detect);
+        let lang = std::env::var("AUTOKEY_LANG")
+            .ok()
+            .and_then(|v| Lang::from_code(&v))
+            .or(lang_user)
+            .unwrap_or_else(i18n::detect);
         i18n::set_lang(lang); // avant tout texte : le message d'état initial est dans la bonne langue
-        let layout_user = saved.layout.as_deref().and_then(|id| LAYOUTS.iter().find(|l| l.id == id)).map(|l| l.id);
-        let layout = if std::env::var_os("AUTOKEY_LAYOUT").is_some() { keys::detect() } else { layout_user.map(keys::by_id).unwrap_or_else(keys::detect) };
+        let layout_user = saved
+            .layout
+            .as_deref()
+            .and_then(|id| LAYOUTS.iter().find(|l| l.id == id))
+            .map(|l| l.id);
+        let layout = if std::env::var_os("AUTOKEY_LAYOUT").is_some() {
+            keys::detect()
+        } else {
+            layout_user.map(keys::by_id).unwrap_or_else(keys::detect)
+        };
         setup_fonts(&cc.egui_ctx, lang == Lang::Zh);
         setup_style(&cc.egui_ctx);
         egui_extras::install_image_loaders(&cc.egui_ctx);
-        DEV.store(std::env::var_os("AUTOKEY_STATE").is_some(), Ordering::Relaxed);
+        DEV.store(
+            std::env::var_os("AUTOKEY_STATE").is_some(),
+            Ordering::Relaxed,
+        );
         App {
             lang,
             lang_user,
@@ -582,7 +808,9 @@ impl App {
             content_h: 500.0,
             started: Instant::now(),
             frames: 0,
-            bench: std::env::var("AUTOKEY_BENCH").ok().map(|_| (Instant::now(), vec![])),
+            bench: std::env::var("AUTOKEY_BENCH")
+                .ok()
+                .map(|_| (Instant::now(), vec![])),
             state_path: std::env::var("AUTOKEY_STATE").ok(),
             last_state: String::new(),
             shots_dir: std::env::var("AUTOKEY_SHOTS").ok(),
@@ -648,12 +876,21 @@ impl App {
         let id = Id::new(TEXT_ID);
         let mut state = TextEditState::load(ctx, id).unwrap_or_default();
         let chars: Vec<char> = self.ed.text.chars().collect();
-        let idx = state.cursor.char_range().map(|r| r.primary.index.0).unwrap_or(chars.len()).min(chars.len());
+        let idx = state
+            .cursor
+            .char_range()
+            .map(|r| r.primary.index.0)
+            .unwrap_or(chars.len())
+            .min(chars.len());
         let mut out: String = chars[..idx].iter().collect();
         out.push_str(s);
         out.extend(chars[idx..].iter());
         self.ed.text = out;
-        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(idx + s.chars().count()))));
+        state
+            .cursor
+            .set_char_range(Some(CCursorRange::one(CCursor::new(
+                idx + s.chars().count(),
+            ))));
         state.store(ctx, id);
         ctx.memory_mut(|m| m.request_focus(id));
     }
@@ -662,7 +899,11 @@ impl App {
     fn cursor_to_end(&self, ctx: &egui::Context) {
         let id = Id::new(TEXT_ID);
         let mut state = TextEditState::load(ctx, id).unwrap_or_default();
-        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(self.ed.text.chars().count()))));
+        state
+            .cursor
+            .set_char_range(Some(CCursorRange::one(CCursor::new(
+                self.ed.text.chars().count(),
+            ))));
         state.store(ctx, id);
     }
 
@@ -718,10 +959,14 @@ impl App {
             self.actions
                 .iter()
                 .enumerate()
-                .map(|(i, a)| model::make_job(a, None).map_err(|e| tf(Msg::ActionInvalid, &[&(i + 1), &e])))
+                .map(|(i, a)| {
+                    model::make_job(a, None).map_err(|e| tf(Msg::ActionInvalid, &[&(i + 1), &e]))
+                })
                 .collect()
         } else {
-            let Some(a) = self.snapshot(ctx, true) else { return };
+            let Some(a) = self.snapshot(ctx, true) else {
+                return;
+            };
             model::make_job(&a, None).map(|j| vec![j])
         };
         match jobs {
@@ -738,9 +983,16 @@ impl App {
         if self.busy() {
             return;
         }
-        let Some(a) = self.snapshot(ctx, false) else { return };
+        let Some(a) = self.snapshot(ctx, false) else {
+            return;
+        };
         match model::make_job(&a, Some(model::now_secs() + 3.0)) {
-            Ok(job) => worker::spawn_jobs(vec![job], Some(i18n::t(Msg::TestName).to_string()), self.sh.clone(), ctx.clone()),
+            Ok(job) => worker::spawn_jobs(
+                vec![job],
+                Some(i18n::t(Msg::TestName).to_string()),
+                self.sh.clone(),
+                ctx.clone(),
+            ),
             Err(e) => self.status(ctx, e, Kind::Err),
         }
     }
@@ -761,7 +1013,10 @@ impl App {
     // ----- parties de l'interface -----
     fn head(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
-            ui.add(egui::Image::new(egui::include_image!("../assets/autokey.png")).fit_to_exact_size(vec2(40.0, 40.0)));
+            ui.add(
+                egui::Image::new(egui::include_image!("../assets/autokey.png"))
+                    .fit_to_exact_size(vec2(40.0, 40.0)),
+            );
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 ui.label(RichText::new("AutoKey").font(fid_b(22.0)).color(TXT));
@@ -776,14 +1031,26 @@ impl App {
                 }
                 ui.add_space(14.0);
                 let who = AUTHOR.split(" aka ").next().unwrap_or("");
-                if Pill::new(format!("♥  {}", tf(Msg::Donate, &[&who])), PAYPAL, PAYPAL_HOV, Color32::WHITE).radius(18).show(ui).clicked() {
+                if Pill::new(
+                    format!("♥  {}", tf(Msg::Donate, &[&who])),
+                    PAYPAL,
+                    PAYPAL_HOV,
+                    Color32::WHITE,
+                )
+                .radius(18)
+                .show(ui)
+                .clicked()
+                {
                     engine::open_url(DONATE_URL);
                 }
                 ui.add_space(8.0);
                 let mut chosen: Option<Lang> = None;
                 let r = combo(ui, "lang_combo", self.lang.name(), 120.0, |ui| {
                     for l in Lang::ALL {
-                        let it = ui.selectable_label(l == self.lang, RichText::new(l.name()).font(fid(14.0)));
+                        let it = ui.selectable_label(
+                            l == self.lang,
+                            RichText::new(l.name()).font(fid(14.0)),
+                        );
                         reg(format!("lang:{}", l.code()), it.rect);
                         if it.clicked() {
                             chosen = Some(l);
@@ -807,7 +1074,10 @@ impl App {
             ui.add_enabled_ui(!busy, |ui| {
                 let r = combo(ui, "layout_combo", self.layout.name, 190.0, |ui| {
                     for l in LAYOUTS {
-                        let it = ui.selectable_label(l.id == self.layout.id, RichText::new(l.name).font(fid(14.0)));
+                        let it = ui.selectable_label(
+                            l.id == self.layout.id,
+                            RichText::new(l.name).font(fid(14.0)),
+                        );
                         reg(format!("layout:{}", l.id), it.rect);
                         if it.clicked() {
                             chosen = Some(l);
@@ -825,7 +1095,10 @@ impl App {
     fn keyboard(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let (kh, gap) = (30.0_f32, 3.0_f32);
         let avail = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(vec2(avail, self.rows.len() as f32 * (kh + gap)), Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(
+            vec2(avail, self.rows.len() as f32 * (kh + gap)),
+            Sense::hover(),
+        );
         let mut clicked: Option<KeyDef> = None;
         for (r, row) in self.rows.iter().enumerate() {
             let total: f32 = row.iter().map(|k| k.w).sum();
@@ -839,9 +1112,21 @@ impl App {
                 let resp = ui.interact(kr, ui.id().with(("key", r, i)), Sense::click());
                 reg(format!("touche:{}", key.label), kr);
                 let held = matches!(key.tok, Tok::Mod(m) if self.ed.mods.iter().any(|x| x == m.canonical()));
-                let fill = if held { ORANGE } else if resp.hovered() { KEY_HOV } else { KEY };
+                let fill = if held {
+                    ORANGE
+                } else if resp.hovered() {
+                    KEY_HOV
+                } else {
+                    KEY
+                };
                 ui.painter().rect_filled(kr, CornerRadius::same(8), fill);
-                ui.painter().text(kr.center(), Align2::CENTER_CENTER, &key.label, fid_b(12.5), if held { DARK } else { TXT });
+                ui.painter().text(
+                    kr.center(),
+                    Align2::CENTER_CENTER,
+                    &key.label,
+                    fid_b(12.5),
+                    if held { DARK } else { TXT },
+                );
                 if resp.hovered() {
                     ctx.set_cursor_icon(CursorIcon::PointingHand);
                 }
@@ -860,13 +1145,25 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             ui.add_enabled_ui(!running, |ui| {
                 vlabel(ui, i18n::t(Msg::Time), 13.0, MUTED);
-                reg("num:h", num_field(ui, &mut self.ed.h, 0, 23, 52.0, 2, true, 1, 18.0, true));
+                reg(
+                    "num:h",
+                    num_field(ui, &mut self.ed.h, 0, 23, 52.0, 2, true, 1, 18.0, true),
+                );
                 vlabel(ui, ":", 18.0, MUTED);
-                reg("num:m", num_field(ui, &mut self.ed.m, 0, 59, 52.0, 2, true, 1, 18.0, true));
+                reg(
+                    "num:m",
+                    num_field(ui, &mut self.ed.m, 0, 59, 52.0, 2, true, 1, 18.0, true),
+                );
                 vlabel(ui, ":", 18.0, MUTED);
-                reg("num:s", num_field(ui, &mut self.ed.s, 0, 59, 52.0, 2, true, 1, 18.0, true));
+                reg(
+                    "num:s",
+                    num_field(ui, &mut self.ed.s, 0, 59, 52.0, 2, true, 1, 18.0, true),
+                );
                 vlabel(ui, ".", 18.0, MUTED);
-                reg("num:ms", num_field(ui, &mut self.ed.ms, 0, 999, 66.0, 3, true, 50, 18.0, true));
+                reg(
+                    "num:ms",
+                    num_field(ui, &mut self.ed.ms, 0, 999, 66.0, 3, true, 50, 18.0, true),
+                );
                 vlabel(ui, i18n::t(Msg::Ms), 12.0, MUTED);
                 ui.add_space(10.0);
                 toggle(ui, &mut self.ed.use_date, i18n::t(Msg::Date));
@@ -883,9 +1180,37 @@ impl App {
                 });
                 ui.add_space(10.0);
                 toggle(ui, &mut self.ed.repeat, i18n::t(Msg::Repeat));
-                reg("num:rep", num_field(ui, &mut self.ed.rep, 2, 9999, 60.0, 0, false, 1, 15.0, self.ed.repeat));
+                reg(
+                    "num:rep",
+                    num_field(
+                        ui,
+                        &mut self.ed.rep,
+                        2,
+                        9999,
+                        60.0,
+                        0,
+                        false,
+                        1,
+                        15.0,
+                        self.ed.repeat,
+                    ),
+                );
                 vlabel(ui, i18n::t(Msg::EveryX), 12.0, MUTED);
-                reg("num:gap", num_field(ui, &mut self.ed.gap, 0, 60000, 70.0, 0, false, 50, 15.0, self.ed.repeat));
+                reg(
+                    "num:gap",
+                    num_field(
+                        ui,
+                        &mut self.ed.gap,
+                        0,
+                        60000,
+                        70.0,
+                        0,
+                        false,
+                        50,
+                        15.0,
+                        self.ed.repeat,
+                    ),
+                );
                 vlabel(ui, i18n::t(Msg::Ms), 12.0, MUTED);
             });
         });
@@ -894,27 +1219,65 @@ impl App {
             let targets = engine::targets_supported();
             ui.add_enabled_ui(!running, |ui| {
                 if targets {
-                    if Pill::new(format!("◎  {}", i18n::t(Msg::PickTarget)), ACCENT, ACCENT_HOV, Color32::WHITE).show(ui).clicked() {
+                    if Pill::new(
+                        format!("◎  {}", i18n::t(Msg::PickTarget)),
+                        ACCENT,
+                        ACCENT_HOV,
+                        Color32::WHITE,
+                    )
+                    .show(ui)
+                    .clicked()
+                    {
                         self.start_pick(ctx);
                     }
-                    if Pill::new("✕", KEY, KEY_HOV, TXT).min_w(36.0).show(ui).clicked() {
+                    if Pill::new("✕", KEY, KEY_HOV, TXT)
+                        .min_w(36.0)
+                        .show(ui)
+                        .clicked()
+                    {
                         self.ed.target = None;
                     }
                 }
-                let r = Pill::new(format!("⚙  {}  ▾", i18n::t(Msg::Options)), KEY, KEY_HOV, TXT).show(ui);
+                let r = Pill::new(
+                    format!("⚙  {}  ▾", i18n::t(Msg::Options)),
+                    KEY,
+                    KEY_HOV,
+                    TXT,
+                )
+                .show(ui);
                 self.opt_rect = r.rect;
                 if r.clicked() {
                     self.opt_open = !self.opt_open;
                 }
             });
-            let squares = if targets { vec![(self.ed.minim, VIOLET), (self.ed.use_target, JAUNE), (self.ed.back, ORANGE)] } else { vec![(self.ed.minim, VIOLET)] };
+            let squares = if targets {
+                vec![
+                    (self.ed.minim, VIOLET),
+                    (self.ed.use_target, JAUNE),
+                    (self.ed.back, ORANGE),
+                ]
+            } else {
+                vec![(self.ed.minim, VIOLET)]
+            };
             for (on, color) in squares {
                 let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-                ui.painter().rect_filled(rect, CornerRadius::same(6), if on { color } else { GRIS });
+                ui.painter().rect_filled(
+                    rect,
+                    CornerRadius::same(6),
+                    if on { color } else { GRIS },
+                );
             }
             let text = match &self.ed.target {
                 _ if !targets => i18n::t(Msg::WaylandNoTarget).to_string(),
-                Some(t) => tf(Msg::TargetInfo, &[&t.exe, &t.title.chars().take(70).collect::<String>(), &t.dx, &t.dy]),
+                Some(t) => tf(
+                    Msg::TargetInfo,
+                    &[
+                        &t.exe,
+                        &t.title.chars().take(70).collect::<String>(),
+                        &t.dx,
+                        &t.dy,
+                    ],
+                ),
                 None => i18n::t(Msg::NoTarget).to_string(),
             };
             label_truncated(ui, &text, 12.0, MUTED);
@@ -925,45 +1288,66 @@ impl App {
         if !self.opt_open {
             return;
         }
-        let count = if engine::targets_supported() { 3.0 } else { 1.0 };
+        let count = if engine::targets_supported() {
+            3.0
+        } else {
+            1.0
+        };
         let h = count * 42.0 + (count + 1.0) * 8.0 + 12.0;
         let below = self.opt_rect.left_bottom() + vec2(0.0, 6.0);
         let screen = ctx.content_rect();
-        let pos = if below.y + h > screen.bottom() - self.bottom_h { pos2(below.x, self.opt_rect.top() - h - 6.0) } else { below };
+        let pos = if below.y + h > screen.bottom() - self.bottom_h {
+            pos2(below.x, self.opt_rect.top() - h - 6.0)
+        } else {
+            below
+        };
         let defs = [
             (i18n::t(Msg::OptMinimize), VIOLET, 0),
             (i18n::t(Msg::OptGoTarget), JAUNE, 1),
             (i18n::t(Msg::OptGoBack), ORANGE, 2),
         ];
-        let out = egui::Area::new(Id::new("options_popup")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
-            Frame::new()
-                .fill(CARD)
-                .stroke(Stroke::new(1.0, BORDER))
-                .corner_radius(CornerRadius::same(14))
-                .inner_margin(Margin::same(8))
-                .show(ui, |ui| {
-                    ui.set_width(300.0);
-                    for (text, color, which) in defs {
-                        if which > 0 && !engine::targets_supported() {
-                            continue;
-                        }
-                        let on = match which {
-                            0 => self.ed.minim,
-                            1 => self.ed.use_target,
-                            _ => self.ed.back,
-                        };
-                        let (base, hover, fg) = if on { (color, color, DARK) } else { (KEY, KEY_HOV, TXT) };
-                        let label = format!("{}   {}", if on { "✔" } else { "☐" }, text);
-                        if Pill::new(label, base, hover, fg).h(42.0).size(13.0).full().show(ui).clicked() {
-                            match which {
-                                0 => self.ed.minim = !self.ed.minim,
-                                1 => self.ed.use_target = !self.ed.use_target,
-                                _ => self.ed.back = !self.ed.back,
+        let out = egui::Area::new(Id::new("options_popup"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(pos)
+            .show(ctx, |ui| {
+                Frame::new()
+                    .fill(CARD)
+                    .stroke(Stroke::new(1.0, BORDER))
+                    .corner_radius(CornerRadius::same(14))
+                    .inner_margin(Margin::same(8))
+                    .show(ui, |ui| {
+                        ui.set_width(300.0);
+                        for (text, color, which) in defs {
+                            if which > 0 && !engine::targets_supported() {
+                                continue;
+                            }
+                            let on = match which {
+                                0 => self.ed.minim,
+                                1 => self.ed.use_target,
+                                _ => self.ed.back,
+                            };
+                            let (base, hover, fg) = if on {
+                                (color, color, DARK)
+                            } else {
+                                (KEY, KEY_HOV, TXT)
+                            };
+                            let label = format!("{}   {}", if on { "✔" } else { "☐" }, text);
+                            if Pill::new(label, base, hover, fg)
+                                .h(42.0)
+                                .size(13.0)
+                                .full()
+                                .show(ui)
+                                .clicked()
+                            {
+                                match which {
+                                    0 => self.ed.minim = !self.ed.minim,
+                                    1 => self.ed.use_target = !self.ed.use_target,
+                                    _ => self.ed.back = !self.ed.back,
+                                }
                             }
                         }
-                    }
-                });
-        });
+                    });
+            });
         self.opt_area = out.response.rect;
         reg("popup", self.opt_area);
         // clic en dehors : ferme le menu
@@ -990,7 +1374,12 @@ impl App {
         ui.add_enabled_ui(!running, |ui| {
             ui.scope(|ui| {
                 let vis = &mut ui.style_mut().visuals;
-                for w in [&mut vis.widgets.inactive, &mut vis.widgets.hovered, &mut vis.widgets.active, &mut vis.widgets.noninteractive] {
+                for w in [
+                    &mut vis.widgets.inactive,
+                    &mut vis.widgets.hovered,
+                    &mut vis.widgets.active,
+                    &mut vis.widgets.noninteractive,
+                ] {
                     w.corner_radius = CornerRadius::same(12);
                     w.bg_stroke = Stroke::new(2.0, ACCENT);
                 }
@@ -1004,8 +1393,18 @@ impl App {
             self.cjk = true;
             setup_fonts(ui.ctx(), true); // du chinois/japonais/coréen est saisi : on charge la police correspondante
         }
-        let mods: Vec<String> = self.ed.mods.iter().filter_map(|m| Modk::parse(m)).map(|k| k.label()).collect();
-        let info = if mods.is_empty() { i18n::t(Msg::HintKeyboard).to_string() } else { tf(Msg::HeldKeys, &[&mods.join(" + ")]) };
+        let mods: Vec<String> = self
+            .ed
+            .mods
+            .iter()
+            .filter_map(|m| Modk::parse(m))
+            .map(|k| k.label())
+            .collect();
+        let info = if mods.is_empty() {
+            i18n::t(Msg::HintKeyboard).to_string()
+        } else {
+            tf(Msg::HeldKeys, &[&mods.join(" + ")])
+        };
         label(ui, &info, 12.0, MUTED);
     }
 
@@ -1016,36 +1415,71 @@ impl App {
         let mut load: Option<usize> = None;
         let mut select: Option<usize> = None;
         for (i, a) in self.actions.iter().enumerate() {
-            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
+            let (rect, resp) =
+                ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
             reg(format!("ligne{i}"), rect);
             let fill = if self.sel == Some(i) { ROW_SEL } else { ROW };
             ui.painter().rect_filled(rect, CornerRadius::same(10), fill);
-            for (k, (on, color)) in [(a.minim, VIOLET), (a.use_target, JAUNE), (a.back, ORANGE)].into_iter().enumerate() {
-                let sq = Rect::from_min_size(pos2(rect.left() + 10.0 + k as f32 * 28.0, rect.center().y - 11.0), vec2(22.0, 22.0));
-                ui.painter().rect_filled(sq, CornerRadius::same(6), if on { color } else { GRIS });
+            for (k, (on, color)) in [(a.minim, VIOLET), (a.use_target, JAUNE), (a.back, ORANGE)]
+                .into_iter()
+                .enumerate()
+            {
+                let sq = Rect::from_min_size(
+                    pos2(rect.left() + 10.0 + k as f32 * 28.0, rect.center().y - 11.0),
+                    vec2(22.0, 22.0),
+                );
+                ui.painter()
+                    .rect_filled(sq, CornerRadius::same(6), if on { color } else { GRIS });
             }
             let when = format!(
                 "{} {:02}:{:02}:{:02}.{:03}",
-                if a.use_date { a.date.as_str() } else { i18n::t(Msg::NextOccurrence) },
-                a.h, a.m, a.s, a.ms
+                if a.use_date {
+                    a.date.as_str()
+                } else {
+                    i18n::t(Msg::NextOccurrence)
+                },
+                a.h,
+                a.m,
+                a.s,
+                a.ms
             );
             let tgt = match (&a.target, a.use_target) {
                 (Some(t), true) => t.exe.clone(),
                 _ => i18n::t(Msg::ActiveWindow).to_string(),
             };
-            let rep = if a.repeat { format!("×{}", a.rep) } else { "-".to_string() };
-            let mods: Vec<String> = a.mods.iter().filter_map(|m| Modk::parse(m)).map(|k| k.label()).collect();
+            let rep = if a.repeat {
+                format!("×{}", a.rep)
+            } else {
+                "-".to_string()
+            };
+            let mods: Vec<String> = a
+                .mods
+                .iter()
+                .filter_map(|m| Modk::parse(m))
+                .map(|k| k.label())
+                .collect();
             let txt = match (mods.is_empty(), a.text.is_empty()) {
                 (true, true) => i18n::t(Msg::HeldOnly).to_string(),
                 (true, false) => a.text.clone(),
                 (false, true) => mods.join(" + "),
                 (false, false) => format!("{} + {}", mods.join(" + "), a.text),
             };
-            let (x_when, x_tgt, x_rep) = (rect.left() + 110.0, rect.right() - 230.0, rect.right() - 70.0);
+            let (x_when, x_tgt, x_rep) = (
+                rect.left() + 110.0,
+                rect.right() - 230.0,
+                rect.right() - 70.0,
+            );
             let x_text = x_when + 210.0;
             let cell = |x0: f32, x1: f32, text: &str, font: FontId, ui: &Ui| {
                 let clip = Rect::from_min_max(pos2(x0, rect.top()), pos2(x1, rect.bottom()));
-                paint_text(&ui.painter().with_clip_rect(clip), Align2::LEFT_CENTER, pos2(x0, rect.center().y), text, font, TXT);
+                paint_text(
+                    &ui.painter().with_clip_rect(clip),
+                    Align2::LEFT_CENTER,
+                    pos2(x0, rect.center().y),
+                    text,
+                    font,
+                    TXT,
+                );
             };
             cell(x_when, x_text - 6.0, &when, fid_m(13.0), ui);
             cell(x_text, x_tgt - 6.0, &txt, fid(13.0), ui);
@@ -1114,7 +1548,20 @@ impl App {
         if let Some(path) = self.state_path.clone() {
             let ppp = ctx.pixels_per_point();
             let widgets: serde_json::Map<String, serde_json::Value> = WIDGETS.with(|w| {
-                w.borrow().iter().map(|(n, r)| (n.clone(), serde_json::json!([r.min.x * ppp, r.min.y * ppp, r.width() * ppp, r.height() * ppp]))).collect()
+                w.borrow()
+                    .iter()
+                    .map(|(n, r)| {
+                        (
+                            n.clone(),
+                            serde_json::json!([
+                                r.min.x * ppp,
+                                r.min.y * ppp,
+                                r.width() * ppp,
+                                r.height() * ppp
+                            ]),
+                        )
+                    })
+                    .collect()
             });
             let (status, kind) = self.sh.status.lock().unwrap().clone();
             let state = serde_json::json!({
@@ -1154,7 +1601,13 @@ impl App {
             if let (Some(img), true) = (shot, self.shot_name.is_some()) {
                 let name = self.shot_name.take().unwrap_or_default();
                 let rgba: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
-                let _ = image::save_buffer(std::path::Path::new(&dir).join(format!("{name}.png")), &rgba, img.width() as u32, img.height() as u32, image::ColorType::Rgba8);
+                let _ = image::save_buffer(
+                    std::path::Path::new(&dir).join(format!("{name}.png")),
+                    &rgba,
+                    img.width() as u32,
+                    img.height() as u32,
+                    image::ColorType::Rgba8,
+                );
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
@@ -1163,10 +1616,17 @@ impl App {
         }
         if let (Some(spec), 5) = (self.autoarm.clone(), self.frames) {
             use chrono::Timelike;
-            let t = match spec.split(':').map(str::parse::<u32>).collect::<Result<Vec<_>, _>>().ok().filter(|v| v.len() == 3) {
+            let t = match spec
+                .split(':')
+                .map(str::parse::<u32>)
+                .collect::<Result<Vec<_>, _>>()
+                .ok()
+                .filter(|v| v.len() == 3)
+            {
                 Some(hms) => (hms[0], hms[1], hms[2]),
                 None => {
-                    let t = chrono::Local::now() + chrono::Duration::seconds(spec.parse().unwrap_or(10));
+                    let t = chrono::Local::now()
+                        + chrono::Duration::seconds(spec.parse().unwrap_or(10));
                     (t.hour(), t.minute(), t.second())
                 }
             };
@@ -1179,7 +1639,10 @@ impl App {
             let n = times.len();
             if n < 140 {
                 let w = 1000.0 + ((n % 2) as f32) * 60.0 + (n as f32 % 7.0) * 3.0;
-                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(w, 640.0 + (n % 3) as f32 * 20.0)));
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(
+                    w,
+                    640.0 + (n % 3) as f32 * 20.0,
+                )));
                 ctx.request_repaint();
             } else {
                 let mut t: Vec<f64> = times[20..].to_vec();
@@ -1187,7 +1650,13 @@ impl App {
                 let avg = t.iter().sum::<f64>() / t.len() as f64;
                 let _ = std::fs::write(
                     std::env::temp_dir().join("autokey_bench.txt"),
-                    format!("images={} moyenne={avg:.1}ms mediane={:.1}ms p95={:.1}ms max={:.1}ms", t.len(), t[t.len() / 2], t[t.len() * 95 / 100], t[t.len() - 1]),
+                    format!(
+                        "images={} moyenne={avg:.1}ms mediane={:.1}ms p95={:.1}ms max={:.1}ms",
+                        t.len(),
+                        t[t.len() / 2],
+                        t[t.len() * 95 / 100],
+                        t[t.len() - 1]
+                    ),
                 );
                 ctx.send_viewport_cmd(ViewportCommand::Close);
             }
@@ -1207,7 +1676,13 @@ impl App {
             });
             if let Some(img) = shot {
                 let rgba: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
-                let _ = image::save_buffer(&path, &rgba, img.width() as u32, img.height() as u32, image::ColorType::Rgba8);
+                let _ = image::save_buffer(
+                    &path,
+                    &rgba,
+                    img.width() as u32,
+                    img.height() as u32,
+                    image::ColorType::Rgba8,
+                );
                 ctx.send_viewport_cmd(ViewportCommand::Close);
             }
             ctx.request_repaint();
@@ -1217,22 +1692,71 @@ impl App {
     fn bottom(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let running = self.running();
         ui.horizontal(|ui| {
-            let go = format!("▶  {}", i18n::t(if self.list_mode { Msg::ArmList } else { Msg::Arm }));
-            if Pill::new(go, GREEN, GREEN_HOV, hex(0x06210f)).size(14.0).h(40.0).radius(12).min_w(140.0).enabled(!running).show(ui).clicked() {
+            let go = format!(
+                "▶  {}",
+                i18n::t(if self.list_mode {
+                    Msg::ArmList
+                } else {
+                    Msg::Arm
+                })
+            );
+            if Pill::new(go, GREEN, GREEN_HOV, hex(0x06210f))
+                .size(14.0)
+                .h(40.0)
+                .radius(12)
+                .min_w(140.0)
+                .enabled(!running)
+                .show(ui)
+                .clicked()
+            {
                 self.arm(ctx);
             }
-            if Pill::new(format!("■  {}", i18n::t(Msg::Cancel)), RED, RED_HOV, Color32::WHITE).size(14.0).h(40.0).radius(12).min_w(120.0).enabled(running).show(ui).clicked() {
+            if Pill::new(
+                format!("■  {}", i18n::t(Msg::Cancel)),
+                RED,
+                RED_HOV,
+                Color32::WHITE,
+            )
+            .size(14.0)
+            .h(40.0)
+            .radius(12)
+            .min_w(120.0)
+            .enabled(running)
+            .show(ui)
+            .clicked()
+            {
                 self.sh.cancel.store(true, Ordering::SeqCst);
             }
-            if Pill::new(i18n::t(Msg::Clear), KEY, KEY_HOV, TXT).h(40.0).radius(12).enabled(!running).show(ui).clicked() {
+            if Pill::new(i18n::t(Msg::Clear), KEY, KEY_HOV, TXT)
+                .h(40.0)
+                .radius(12)
+                .enabled(!running)
+                .show(ui)
+                .clicked()
+            {
                 self.ed.text.clear();
                 self.ed.mods.clear();
             }
-            if Pill::new(i18n::t(Msg::TestBtn), KEY, KEY_HOV, TXT).h(40.0).radius(12).enabled(!running).show(ui).clicked() {
+            if Pill::new(i18n::t(Msg::TestBtn), KEY, KEY_HOV, TXT)
+                .h(40.0)
+                .radius(12)
+                .enabled(!running)
+                .show(ui)
+                .clicked()
+            {
                 self.test(ctx);
             }
             if matches!(engine::input_state(), Input::Needed | Input::Denied(_))
-                && Pill::new(i18n::t(Msg::WaylandAllow), ACCENT, ACCENT_HOV, Color32::WHITE).h(40.0).radius(12).show(ui).clicked()
+                && Pill::new(
+                    i18n::t(Msg::WaylandAllow),
+                    ACCENT,
+                    ACCENT_HOV,
+                    Color32::WHITE,
+                )
+                .h(40.0)
+                .radius(12)
+                .show(ui)
+                .clicked()
             {
                 engine::request_input();
             }
@@ -1288,30 +1812,42 @@ impl eframe::App for App {
         WIDGETS.with(|w| w.borrow_mut().clear());
 
         let head = egui::Panel::top("head")
-            .frame(Frame::new().fill(BG).inner_margin(Margin::symmetric(20, 10)))
+            .frame(
+                Frame::new()
+                    .fill(BG)
+                    .inner_margin(Margin::symmetric(20, 10)),
+            )
             .show(ui, |ui| self.head(ui, &ctx));
         self.head_h = head.response.rect.height();
 
         let bottom = egui::Panel::bottom("bottom")
-            .frame(Frame::new().fill(CARD).inner_margin(Margin::symmetric(14, 8)))
+            .frame(
+                Frame::new()
+                    .fill(CARD)
+                    .inner_margin(Margin::symmetric(14, 8)),
+            )
             .show(ui, |ui| self.bottom(ui, &ctx));
         self.bottom_h = bottom.response.rect.height();
 
-        egui::CentralPanel::default().frame(Frame::new().fill(BG).inner_margin(Margin::symmetric(10, 4))).show(ui, |ui| {
-            let out = ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 10.0;
-                card(ui, |ui| {
-                    self.layout_bar(ui);
-                    self.keyboard(ui, &ctx);
-                });
-                card(ui, |ui| self.programming(ui, &ctx));
-                card(ui, |ui| self.what(ui));
-                if self.list_mode {
-                    card(ui, |ui| self.list_card(ui, &ctx));
-                }
+        egui::CentralPanel::default()
+            .frame(Frame::new().fill(BG).inner_margin(Margin::symmetric(10, 4)))
+            .show(ui, |ui| {
+                let out = ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 10.0;
+                        card(ui, |ui| {
+                            self.layout_bar(ui);
+                            self.keyboard(ui, &ctx);
+                        });
+                        card(ui, |ui| self.programming(ui, &ctx));
+                        card(ui, |ui| self.what(ui));
+                        if self.list_mode {
+                            card(ui, |ui| self.list_card(ui, &ctx));
+                        }
+                    });
+                self.content_h = out.content_size.y;
             });
-            self.content_h = out.content_size.y;
-        });
 
         self.options_popup(&ctx);
 
@@ -1338,8 +1874,12 @@ impl eframe::App for App {
             self.fit -= 1;
             if self.fit == 0 && !ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
                 let w = ctx.content_rect().width();
-                let monitor_h = ctx.input(|i| i.viewport().monitor_size.map(|m| m.y)).unwrap_or(900.0);
-                let h = (self.head_h + self.content_h + self.bottom_h + 14.0).min(monitor_h - 90.0).max(460.0);
+                let monitor_h = ctx
+                    .input(|i| i.viewport().monitor_size.map(|m| m.y))
+                    .unwrap_or(900.0);
+                let h = (self.head_h + self.content_h + self.bottom_h + 14.0)
+                    .min(monitor_h - 90.0)
+                    .max(460.0);
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(w, h)));
             }
             ctx.request_repaint();

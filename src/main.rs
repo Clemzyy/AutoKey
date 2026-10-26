@@ -10,9 +10,15 @@ mod worker;
 use eframe::egui;
 
 fn load_icon() -> egui::IconData {
-    let img = image::load_from_memory(include_bytes!("../assets/autokey.png")).expect("icône").to_rgba8();
+    let img = image::load_from_memory(include_bytes!("../assets/autokey.png"))
+        .expect("icône")
+        .to_rgba8();
     let (width, height) = img.dimensions();
-    egui::IconData { rgba: img.into_raw(), width, height }
+    egui::IconData {
+        rgba: img.into_raw(),
+        width,
+        height,
+    }
 }
 
 const TITLE: &str = "AutoKey";
@@ -32,5 +38,9 @@ fn main() -> eframe::Result {
             .with_icon(load_icon()),
         ..Default::default()
     };
-    eframe::run_native("AutoKey", options, Box::new(|cc| Ok(Box::new(ui::App::new(cc)))))
+    eframe::run_native(
+        "AutoKey",
+        options,
+        Box::new(|cc| Ok(Box::new(ui::App::new(cc)))),
+    )
 }

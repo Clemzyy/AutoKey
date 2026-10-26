@@ -17,7 +17,10 @@ use core_foundation::string::CFString;
 use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton};
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
-use core_graphics::window::{copy_window_info, kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionAll, kCGWindowListOptionOnScreenOnly};
+use core_graphics::window::{
+    copy_window_info, kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionAll,
+    kCGWindowListOptionOnScreenOnly,
+};
 
 use super::Target;
 use crate::i18n::{self, Msg};
@@ -118,9 +121,15 @@ fn modifier_flag(key: u16) -> u64 {
 static HELD: AtomicU64 = AtomicU64::new(0);
 
 fn post_key(key: u16, down: bool, extra_flags: u64, text: Option<&str>) -> bool {
-    let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else { return false };
-    let Ok(event) = CGEvent::new_keyboard_event(source, key, down) else { return false };
-    event.set_flags(CGEventFlags::from_bits_truncate(HELD.load(Ordering::SeqCst) | extra_flags));
+    let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+        return false;
+    };
+    let Ok(event) = CGEvent::new_keyboard_event(source, key, down) else {
+        return false;
+    };
+    event.set_flags(CGEventFlags::from_bits_truncate(
+        HELD.load(Ordering::SeqCst) | extra_flags,
+    ));
     if let Some(t) = text {
         event.set_string(t);
     }
@@ -130,7 +139,9 @@ fn post_key(key: u16, down: bool, extra_flags: u64, text: Option<&str>) -> bool 
 
 /// Appuie (up = false) ou relâche (up = true) une touche physique, par code de balayage.
 pub fn send_scan(scan: u16, ext: bool, up: bool) -> bool {
-    let Some(key) = mac_key(scan, ext) else { return false };
+    let Some(key) = mac_key(scan, ext) else {
+        return false;
+    };
     let flag = modifier_flag(key);
     if flag != 0 {
         if up {
@@ -168,18 +179,39 @@ fn find_char(c: char) -> Option<(u16, bool, bool)> {
             return None;
         }
         let data = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData);
-        let layout = if data.is_null() { std::ptr::null() } else { CFDataGetBytePtr(data) };
+        let layout = if data.is_null() {
+            std::ptr::null()
+        } else {
+            CFDataGetBytePtr(data)
+        };
         let mut found = None;
         if !layout.is_null() {
             let kbd = LMGetKbdType() as u32;
-            'search: for (shift, option) in [(false, false), (true, false), (false, true), (true, true)] {
+            'search: for (shift, option) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
                 let state = (shift as u32) * 2 + (option as u32) * 8; // (modificateurs Carbon) >> 8
                 let mut best: Option<(bool, u16)> = None;
                 for key in 0u16..128 {
                     let (mut dead, mut len, mut out) = (0u32, 0usize, [0u16; 4]);
                     // action 0 = appui ; option 1 = ne pas composer les touches mortes
-                    let err = UCKeyTranslate(layout, key, 0, state, kbd, 1, &mut dead, 4, &mut len, out.as_mut_ptr());
-                    if err == 0 && len == 1 && out[0] == target && best.is_none_or(|b| (is_keypad(key), key) < b) {
+                    let err = UCKeyTranslate(
+                        layout,
+                        key,
+                        0,
+                        state,
+                        kbd,
+                        1,
+                        &mut dead,
+                        4,
+                        &mut len,
+                        out.as_mut_ptr(),
+                    );
+                    if err == 0
+                        && len == 1
+                        && out[0] == target
+                        && best.is_none_or(|b| (is_keypad(key), key) < b)
+                    {
                         best = Some((is_keypad(key), key));
                     }
                 }
@@ -202,7 +234,9 @@ pub fn press_char(c: char) -> bool {
         c if c.is_control() => return true,
         _ => {}
     }
-    let Some((key, shift, option)) = find_char(c) else { return send_char(c) };
+    let Some((key, shift, option)) = find_char(c) else {
+        return send_char(c);
+    };
     let extra = if shift { 0x0002_0000 } else { 0 } | if option { 0x0008_0000 } else { 0 };
     post_key(key, true, extra, None) & post_key(key, false, extra, None)
 }
@@ -275,7 +309,9 @@ pub fn mouse_click(x: i32, y: i32) -> Result<(), String> {
     }
     let point = CGPoint::new(x as f64, y as f64);
     let send = |kind: CGEventType| -> bool {
-        let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else { return false };
+        let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+            return false;
+        };
         match CGEvent::new_mouse_event(source, kind, point, CGMouseButton::Left) {
             Ok(event) => {
                 event.post(CGEventTapLocation::HID);
@@ -312,26 +348,45 @@ fn number(dict: &CFDictionary<CFString, CFType>, key: &str) -> Option<f64> {
 }
 
 fn text(dict: &CFDictionary<CFString, CFType>, key: &str) -> String {
-    dict.find(CFString::new(key)).and_then(|v| v.downcast::<CFString>()).map(|s| s.to_string()).unwrap_or_default()
+    dict.find(CFString::new(key))
+        .and_then(|v| v.downcast::<CFString>())
+        .map(|s| s.to_string())
+        .unwrap_or_default()
 }
 
 /// Fenêtres, de la plus haute à la plus basse. `all` inclut celles qui sont réduites ou sur un autre bureau.
 fn windows(all: bool) -> Vec<Win> {
-    let option = if all { kCGWindowListOptionAll } else { kCGWindowListOptionOnScreenOnly } | kCGWindowListExcludeDesktopElements;
-    let Some(list) = copy_window_info(option, kCGNullWindowID) else { return Vec::new() };
+    let option = if all {
+        kCGWindowListOptionAll
+    } else {
+        kCGWindowListOptionOnScreenOnly
+    } | kCGWindowListExcludeDesktopElements;
+    let Some(list) = copy_window_info(option, kCGNullWindowID) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for item in list.iter() {
         // SAFETY: appel Quartz/CoreFoundation : arguments valides pendant l'appel, objets CF possédés ou retenus selon la règle de propriété indiquée.
-        let dict: CFDictionary<CFString, CFType> = unsafe { CFDictionary::wrap_under_get_rule(*item as CFDictionaryRef) };
-        let Some(id) = number(&dict, "kCGWindowNumber") else { continue };
+        let dict: CFDictionary<CFString, CFType> =
+            unsafe { CFDictionary::wrap_under_get_rule(*item as CFDictionaryRef) };
+        let Some(id) = number(&dict, "kCGWindowNumber") else {
+            continue;
+        };
         let rect = dict
             .find(CFString::new("kCGWindowBounds"))
             .and_then(|b| b.downcast::<CFDictionary>())
             .map(|b| {
                 // SAFETY: appel Quartz/CoreFoundation : arguments valides pendant l'appel, objets CF possédés ou retenus selon la règle de propriété indiquée.
-                let b: CFDictionary<CFString, CFType> = unsafe { CFDictionary::wrap_under_get_rule(b.as_concrete_TypeRef()) };
-                let (x, y) = (number(&b, "X").unwrap_or(0.0), number(&b, "Y").unwrap_or(0.0));
-                let (w, h) = (number(&b, "Width").unwrap_or(0.0), number(&b, "Height").unwrap_or(0.0));
+                let b: CFDictionary<CFString, CFType> =
+                    unsafe { CFDictionary::wrap_under_get_rule(b.as_concrete_TypeRef()) };
+                let (x, y) = (
+                    number(&b, "X").unwrap_or(0.0),
+                    number(&b, "Y").unwrap_or(0.0),
+                );
+                let (w, h) = (
+                    number(&b, "Width").unwrap_or(0.0),
+                    number(&b, "Height").unwrap_or(0.0),
+                );
                 (x as i32, y as i32, (x + w) as i32, (y + h) as i32)
             })
             .unwrap_or((0, 0, 0, 0));
@@ -378,7 +433,10 @@ pub fn is_window(h: isize) -> bool {
 
 /// Fenêtre normale la plus haute (celle de l'application au premier plan).
 pub fn foreground() -> isize {
-    windows(false).into_iter().find(|w| w.layer == 0).map_or(0, |w| w.id)
+    windows(false)
+        .into_iter()
+        .find(|w| w.layer == 0)
+        .map_or(0, |w| w.id)
 }
 
 /// Fenêtre de premier niveau visible située sous un point de l'écran.
@@ -391,12 +449,21 @@ pub fn root_at(x: i32, y: i32) -> isize {
 
 /// Retrouve la fenêtre cible : même identifiant si elle existe encore, sinon même application.
 pub fn find_window(t: &Target) -> Option<isize> {
-    let all: Vec<Win> = windows(true).into_iter().filter(|w| w.layer == 0 && w.rect.2 > w.rect.0).collect();
+    let all: Vec<Win> = windows(true)
+        .into_iter()
+        .filter(|w| w.layer == 0 && w.rect.2 > w.rect.0)
+        .collect();
     if let Some(w) = all.iter().find(|w| w.id == t.hwnd && w.owner == t.cls) {
         return Some(w.id);
     }
-    let same: Vec<&Win> = all.iter().filter(|w| w.owner == t.cls && w.owner.to_lowercase() == t.exe).collect();
-    same.iter().find(|w| w.title == t.title).or(same.first()).map(|w| w.id)
+    let same: Vec<&Win> = all
+        .iter()
+        .filter(|w| w.owner == t.cls && w.owner.to_lowercase() == t.exe)
+        .collect();
+    same.iter()
+        .find(|w| w.title == t.title)
+        .or(same.first())
+        .map(|w| w.id)
 }
 
 /// Amène l'application de la fenêtre au premier plan. Vrai si réussi ; `stop` permet d'interrompre l'attente.
@@ -406,13 +473,22 @@ pub fn focus_window(h: isize, stop: &dyn Fn() -> bool) -> bool {
         return true;
     }
     // `open -a` active l'application (et rouvre sa fenêtre si elle est réduite) sans demander d'autorisation supplémentaire
-    let _ = Command::new("open").args(["-a", &win.owner]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let _ = Command::new("open")
+        .args(["-a", &win.owner])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
     for _ in 0..40 {
         sleep(Duration::from_millis(50));
         if stop() {
             return false;
         }
-        if windows(false).into_iter().find(|w| w.layer == 0).is_some_and(|w| w.pid == win.pid) {
+        if windows(false)
+            .into_iter()
+            .find(|w| w.layer == 0)
+            .is_some_and(|w| w.pid == win.pid)
+        {
             return true;
         }
     }
@@ -422,14 +498,26 @@ pub fn focus_window(h: isize, stop: &dyn Fn() -> bool) -> bool {
 // ---------- ouvrir un lien, instance unique, identité ----------
 /// Ouvre une adresse web dans le navigateur par défaut.
 pub fn open_url(url: &str) {
-    let _ = Command::new("open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let _ = Command::new("open")
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
 }
 
 /// Vrai si une autre instance d'AutoKey tourne déjà. (Deux instances armées taperaient deux fois.)
 pub fn another_instance_running(_window_title: &str) -> bool {
     static LOCK: OnceLock<std::fs::File> = OnceLock::new();
     let path: PathBuf = std::env::temp_dir().join("autokey.lock");
-    let Ok(file) = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path) else { return false };
+    let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+    else {
+        return false;
+    };
     if file.try_lock().is_ok() {
         let _ = LOCK.set(file);
         return false;
@@ -443,7 +531,14 @@ pub fn own_pid() -> u32 {
 
 /// Disposition et variante du clavier actif, au même format que sous Linux (« fr », « us » / « dvorak »…).
 pub fn xkb_layout() -> Option<(String, String)> {
-    let out = Command::new("defaults").args(["read", "com.apple.HIToolbox", "AppleCurrentKeyboardLayoutInputSourceID"]).output().ok()?;
+    let out = Command::new("defaults")
+        .args([
+            "read",
+            "com.apple.HIToolbox",
+            "AppleCurrentKeyboardLayoutInputSourceID",
+        ])
+        .output()
+        .ok()?;
     let id = String::from_utf8(out.stdout).ok()?;
     let name = id.trim().rsplit('.').next()?.to_lowercase();
     let (layout, variant) = match name.as_str() {
