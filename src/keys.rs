@@ -542,3 +542,105 @@ pub fn build(l: &KbLayout) -> Vec<Vec<KeyDef>> {
     ];
     vec![r0, r1, r2, r3, r4, r5]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lookup_named_keys_in_several_languages() {
+        assert_eq!(lookup("Enter"), Some(Tok::Named(Named::Enter)));
+        assert_eq!(lookup("  entrée "), Some(Tok::Named(Named::Enter)));
+        assert_eq!(lookup("пробел"), Some(Tok::Named(Named::Space)));
+        assert_eq!(lookup("空格"), Some(Tok::Named(Named::Space)));
+        assert_eq!(lookup("PgDn"), Some(Tok::Named(Named::PageDown)));
+    }
+
+    #[test]
+    fn lookup_function_keys_one_to_twelve_only() {
+        assert_eq!(lookup("f1"), Some(Tok::Named(Named::F(1))));
+        assert_eq!(lookup("F12"), Some(Tok::Named(Named::F(12))));
+        assert_eq!(lookup("F13"), None);
+        assert_eq!(lookup("F0"), None);
+    }
+
+    #[test]
+    fn lookup_single_char_is_lowercased_and_longer_unknown_is_none() {
+        assert_eq!(lookup("A"), Some(Tok::Char('a')));
+        assert_eq!(lookup("é"), Some(Tok::Char('é')));
+        assert_eq!(lookup("abc"), None);
+        assert_eq!(lookup(""), None);
+    }
+
+    #[test]
+    fn named_canonical_names_parse_back() {
+        let all = [
+            Named::Esc,
+            Named::F(7),
+            Named::Tab,
+            Named::Caps,
+            Named::Enter,
+            Named::Backspace,
+            Named::Space,
+            Named::Left,
+            Named::Up,
+            Named::Down,
+            Named::Right,
+            Named::Delete,
+            Named::Insert,
+            Named::Home,
+            Named::End,
+            Named::PageUp,
+            Named::PageDown,
+        ];
+        for n in all {
+            assert_eq!(Named::parse(&n.canonical()), Some(n), "{n:?}");
+        }
+    }
+
+    #[test]
+    fn extended_flag_matches_navigation_keys() {
+        assert!(Named::Left.scan().1);
+        assert!(Named::Delete.scan().1);
+        assert!(!Named::Enter.scan().1);
+        assert!(Modk::AltGr.scan().1);
+        assert!(!Modk::Alt.scan().1);
+        assert_eq!(Modk::Alt.scan().0, Modk::AltGr.scan().0);
+    }
+
+    #[test]
+    fn modifier_names_roundtrip_and_accept_legacy_spellings() {
+        for m in [
+            Modk::LShift,
+            Modk::RShift,
+            Modk::Ctrl,
+            Modk::Alt,
+            Modk::AltGr,
+        ] {
+            assert_eq!(Modk::parse(m.canonical()), Some(m));
+        }
+        assert_eq!(Modk::parse("Maj"), Some(Modk::LShift));
+        assert_eq!(Modk::parse("Maj "), Some(Modk::RShift));
+        assert_eq!(Modk::parse("Alt Gr"), Some(Modk::AltGr));
+        assert_eq!(Modk::parse("meta"), None);
+    }
+
+    #[test]
+    fn layouts_are_well_formed() {
+        assert_eq!(LAYOUTS.len(), 13);
+        let mut ids: Vec<_> = LAYOUTS.iter().map(|l| l.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), LAYOUTS.len(), "identifiants uniques");
+        for l in LAYOUTS {
+            assert!(l.rows.iter().all(|r| !r.trim().is_empty()), "{}", l.id);
+            assert!(!build(l).is_empty(), "{}", l.id);
+            assert_eq!(by_id(l.id).id, l.id);
+        }
+    }
+
+    #[test]
+    fn unknown_layout_falls_back_to_a_default() {
+        assert_eq!(by_id("nimportequoi").id, LAYOUTS[2].id);
+    }
+}

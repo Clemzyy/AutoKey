@@ -45,6 +45,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libx11-dev libxkbcommon-dev libgl1-mesa-dev libwayland-dev
 
+      - name: Tests unitaires
+        if: matrix.name != 'windows-arm64'
+        run: cargo test --locked --target ${{ matrix.target }}
+
       - name: Compiler
         run: cargo build --release --locked --target ${{ matrix.target }}
 

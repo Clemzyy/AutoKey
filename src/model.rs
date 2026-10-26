@@ -369,3 +369,225 @@ pub fn load() -> Saved {
         layout: text("layout"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Forme lisible d'une suite d'éléments, pour comparer sans `PartialEq`.
+    fn show(items: &[Item]) -> String {
+        items
+            .iter()
+            .map(|i| match i {
+                Item::Char(c) => format!("c:{c}"),
+                Item::Key(s, e) => format!("k:{s:#x}:{e}"),
+                Item::Press(c) => format!("p:{c}"),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn parsed(text: &str) -> String {
+        show(&parse(text).expect("texte valide"))
+    }
+
+    #[test]
+    fn parse_plain_text() {
+        assert_eq!(parsed("ab"), "c:a c:b");
+        assert_eq!(parsed(""), "");
+    }
+
+    #[test]
+    fn parse_keeps_unicode_as_typed_chars() {
+        assert_eq!(parsed("é你"), "c:é c:你");
+    }
+
+    #[test]
+    fn parse_named_key_between_brackets() {
+        assert_eq!(parsed("hi[Enter]"), "c:h c:i k:0x1c:false");
+        assert_eq!(parsed("[F5]"), "k:0x3f:false");
+        assert_eq!(parsed("[Left]"), "k:0x4b:true");
+    }
+
+    #[test]
+    fn parse_accepts_localized_key_names() {
+        assert_eq!(parsed("[entrée]"), parsed("[Enter]"));
+        assert_eq!(parsed("[Échap]"), parsed("[Esc]"));
+    }
+
+    #[test]
+    fn parse_single_char_in_brackets_is_a_press() {
+        assert_eq!(parsed("[a]"), "p:a");
+        assert_eq!(parsed("[A]"), "p:a");
+    }
+
+    #[test]
+    fn parse_unknown_key_is_an_error() {
+        assert!(parse("[nimportequoi]").is_err());
+    }
+
+    #[test]
+    fn parse_unmatched_bracket_is_typed_literally() {
+        assert_eq!(parsed("a[b"), "c:a c:[ c:b");
+        assert_eq!(parsed("[]"), "c:[ c:]");
+        assert_eq!(parsed("[[a]"), "c:[ p:a");
+    }
+
+    fn at(h: u32, m: u32, s: u32, ms: u32) -> Action {
+        Action {
+            h,
+            m,
+            s,
+            ms,
+            use_date: false,
+            ..Action::default()
+        }
+    }
+
+    #[test]
+    fn when_is_always_in_the_future_within_a_day() {
+        let now = now_secs();
+        for (h, m) in [(0, 0), (12, 30), (23, 59)] {
+            let t = when(&at(h, m, 0, 0)).expect("heure valide");
+            assert!(t > now - 1.0, "{h}:{m} dans le passé");
+            assert!(t <= now + 86_400.0 + 3_600.0, "{h}:{m} trop loin");
+        }
+    }
+
+    #[test]
+    fn when_keeps_milliseconds() {
+        let t = when(&at(12, 0, 0, 250)).expect("heure valide");
+        assert!((t.fract() - 0.25).abs() < 1e-3);
+    }
+
+    #[test]
+    fn when_rejects_invalid_time_and_date() {
+        assert!(when(&at(24, 0, 0, 0)).is_err());
+        let mut a = at(12, 0, 0, 0);
+        a.use_date = true;
+        a.date = "31/02/2030".into();
+        assert!(when(&a).is_err());
+        a.date = "pas une date".into();
+        assert!(when(&a).is_err());
+    }
+
+    #[test]
+    fn when_rejects_a_past_date() {
+        let mut a = at(12, 0, 0, 0);
+        a.use_date = true;
+        a.date = "01/01/2000".into();
+        assert!(when(&a).is_err());
+    }
+
+    #[test]
+    fn when_accepts_a_far_future_date_in_both_formats() {
+        let mut a = at(12, 0, 0, 0);
+        a.use_date = true;
+        a.date = "01/01/2100".into();
+        let t1 = when(&a).expect("jj/mm/aaaa");
+        a.date = "2100-01-01".into();
+        assert_eq!(when(&a).expect("aaaa-mm-jj"), t1);
+    }
+
+    #[test]
+    fn make_job_applies_repeat_and_forced_timestamp() {
+        let mut a = at(12, 0, 0, 0);
+        a.text = "x".into();
+        a.use_target = false;
+        a.repeat = true;
+        a.rep = 0;
+        a.gap = 250;
+        a.mods = vec!["ctrl".into(), "inconnu".into()];
+        let job = make_job(&a, Some(42.0)).expect("job");
+        assert_eq!(job.ts, 42.0);
+        assert_eq!(job.n, 1, "0 répétition est ramené à 1");
+        assert!((job.gap - 0.25).abs() < 1e-9);
+        assert_eq!(
+            job.mods,
+            vec![Modk::Ctrl.scan()],
+            "modificateur inconnu ignoré"
+        );
+        assert!(job.target.is_none());
+
+        a.repeat = false;
+        let job = make_job(&a, Some(1.0)).expect("job");
+        assert_eq!((job.n, job.gap), (1, 0.0));
+    }
+
+    #[test]
+    fn make_job_propagates_parse_errors() {
+        let mut a = at(12, 0, 0, 0);
+        a.text = "[nimportequoi]".into();
+        assert!(make_job(&a, Some(1.0)).is_err());
+    }
+
+    #[test]
+    fn num_accepts_numbers_and_numeric_text() {
+        assert_eq!(num(Some(&json!(7)), 1), 7);
+        assert_eq!(num(Some(&json!(7.6)), 1), 8);
+        assert_eq!(num(Some(&json!(" 12 ")), 1), 12);
+        assert_eq!(num(Some(&json!("abc")), 5), 5);
+        assert_eq!(num(Some(&json!(-3)), 5), 0);
+        assert_eq!(num(None, 9), 9);
+    }
+
+    #[test]
+    fn action_from_json_clamps_out_of_range_values() {
+        let base = Action::default();
+        let a = action_from_json(
+            &json!({"h": 99, "m": 99, "s": 99, "ms": 5000, "rep": 0, "gap": 999999}),
+            &base,
+        );
+        assert_eq!((a.h, a.m, a.s, a.ms), (23, 59, 59, 999));
+        assert_eq!((a.rep, a.gap), (1, 60_000));
+    }
+
+    #[test]
+    fn action_roundtrips_through_json() {
+        let a = Action {
+            h: 8,
+            m: 5,
+            s: 3,
+            ms: 120,
+            use_date: true,
+            date: "05/06/2031".into(),
+            text: "bonjour[Enter]".into(),
+            mods: vec!["ctrl".into(), "altgr".into()],
+            repeat: true,
+            rep: 4,
+            gap: 300,
+            target: Some(Target {
+                hwnd: 0,
+                exe: "notepad.exe".into(),
+                cls: "Edit".into(),
+                title: "Sans titre".into(),
+                dx: 10,
+                dy: 20,
+                w: 300,
+                h: 200,
+                fx: 0.5,
+                fy: 0.25,
+            }),
+            use_target: false,
+            back: false,
+            minim: false,
+        };
+        let back = action_from_json(&action_to_json(&a), &Action::default());
+        assert_eq!(back, a);
+    }
+
+    #[test]
+    fn action_from_json_migrates_old_modifier_names() {
+        let a = action_from_json(
+            &json!({"mods": ["Maj", "Alt Gr", "nimportequoi"]}),
+            &Action::default(),
+        );
+        assert_eq!(a.mods, vec!["shift", "altgr"]);
+    }
+
+    #[test]
+    fn target_without_exe_is_dropped() {
+        assert!(target_from_json(&json!({"cls": "Edit"})).is_none());
+        assert!(target_from_json(&json!(null)).is_none());
+    }
+}

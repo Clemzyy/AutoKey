@@ -832,7 +832,7 @@ impl App {
             setup_fonts(ctx, true);
         }
         self.rows = keys::build(self.layout);
-        let kind = self.sh.status.lock().unwrap().1;
+        let kind = self.sh.status.lock().unwrap_or_else(|e| e.into_inner()).1;
         if (kind == Kind::Info || engine::session_warning().is_some()) && !self.running() {
             let (text, kind) = worker::idle_status();
             self.sh.set_status(ctx, text, kind);
@@ -1563,7 +1563,12 @@ impl App {
                     })
                     .collect()
             });
-            let (status, kind) = self.sh.status.lock().unwrap().clone();
+            let (status, kind) = self
+                .sh
+                .status
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             let state = serde_json::json!({
                 "text": self.ed.text, "mods": self.ed.mods, "h": self.ed.h, "m": self.ed.m, "s": self.ed.s, "ms": self.ed.ms,
                 "use_date": self.ed.use_date, "date": self.ed.date, "repeat": self.ed.repeat, "rep": self.ed.rep, "gap": self.ed.gap,
@@ -1761,7 +1766,12 @@ impl App {
                 engine::request_input();
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let (text, kind) = self.sh.status.lock().unwrap().clone();
+                let (text, kind) = self
+                    .sh
+                    .status
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
                 let color = match kind {
                     Kind::Info => MUTED,
                     Kind::Wait => hex(0x9ab4ff),
@@ -1795,7 +1805,12 @@ impl eframe::App for App {
         if self.sh.restore.swap(false, Ordering::SeqCst) {
             Self::restore_window(ctx);
         }
-        let picked = self.sh.picked.lock().unwrap().take();
+        let picked = self
+            .sh
+            .picked
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         if let Some(result) = picked {
             Self::restore_window(ctx);
             if let Some(t) = result {

@@ -86,7 +86,7 @@ impl Shared {
     }
 
     pub fn set_status(&self, ctx: &egui::Context, text: impl Into<String>, kind: Kind) {
-        *self.status.lock().unwrap() = (text.into(), kind);
+        *self.status.lock().unwrap_or_else(|e| e.into_inner()) = (text.into(), kind);
         ctx.request_repaint();
     }
 
@@ -313,7 +313,7 @@ pub fn spawn_jobs(jobs: Vec<Job>, label: Option<String>, sh: Arc<Shared>, ctx: e
 /// Repère la zone à cibler : affiche une bannière, attend un clic (Échap = annuler) et décrit la fenêtre cliquée.
 pub fn spawn_pick(sh: Arc<Shared>, ctx: egui::Context) {
     sh.picking.store(true, Ordering::SeqCst);
-    *sh.picked.lock().unwrap() = None;
+    *sh.picked.lock().unwrap_or_else(|e| e.into_inner()) = None;
     std::thread::spawn(move || {
         let banner = engine::Banner::show(i18n::t(Msg::PickBanner));
         let start = Instant::now();
@@ -337,7 +337,7 @@ pub fn spawn_pick(sh: Arc<Shared>, ctx: egui::Context) {
         };
         drop(banner);
         sh.picking.store(false, Ordering::SeqCst);
-        *sh.picked.lock().unwrap() = Some(result);
+        *sh.picked.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
         ctx.request_repaint();
     });
 }
