@@ -279,6 +279,7 @@ pub fn detect() -> &'static KbLayout {
 #[cfg(windows)]
 fn system_layout() -> Option<&'static KbLayout> {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyboardLayout;
+    // SAFETY: appel Win32 sans argument pointeur ; la valeur renvoyée est un simple handle de disposition.
     let langid = (unsafe { GetKeyboardLayout(0) } as usize & 0xFFFF) as u16;
     LAYOUTS
         .iter()

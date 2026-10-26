@@ -14,6 +14,7 @@ pub fn build(layout: &str, variant: &str) -> Option<(u8, usize, Vec<u32>)> {
     let xkb = xkbcommon_option()?;
     let layout = CString::new(layout).ok()?;
     let variant = CString::new(variant).ok()?;
+    // SAFETY: libxkbcommon chargée dynamiquement ; chaque pointeur renvoyé est testé avant usage et libéré (unref) avant la sortie.
     unsafe {
         let context = (xkb.xkb_context_new)(xkb_context_flags::XKB_CONTEXT_NO_FLAGS);
         if context.is_null() {

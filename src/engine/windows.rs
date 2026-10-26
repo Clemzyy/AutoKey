@@ -39,6 +39,7 @@ fn hwnd(h: isize) -> HWND {
 // ---------- envoi de touches ----------
 /// Vrai si Windows a accepté l'événement (faux, par ex., si la fenêtre active tourne en administrateur).
 fn send_input(input: INPUT) -> bool {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe { SendInput(1, &input, size_of::<INPUT>() as i32) == 1 }
 }
 
@@ -81,6 +82,7 @@ pub fn press_char(c: char) -> bool {
     if units.len() != 1 {
         return send_char(c);
     }
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         let fg = GetForegroundWindow();
         let thread = if fg.is_null() { 0 } else { GetWindowThreadProcessId(fg, std::ptr::null_mut()) };
@@ -128,12 +130,14 @@ pub fn press_char(c: char) -> bool {
 /// À appeler depuis le même thread pour l'activer et le désactiver.
 pub fn keep_awake(on: bool) {
     let flags = if on { ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED } else { ES_CONTINUOUS };
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         SetThreadExecutionState(flags);
     }
 }
 
 fn down(vk: u16) -> bool {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe { GetAsyncKeyState(vk as i32) < 0 }
 }
 
@@ -148,6 +152,7 @@ pub fn escape_down() -> bool {
 
 /// Bouton principal de la souris (le physique de droite si l'utilisateur a inversé les boutons).
 pub fn left_button_down() -> bool {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) != 0 };
     down(if swapped { VK_RBUTTON } else { VK_LBUTTON })
 }
@@ -155,17 +160,20 @@ pub fn left_button_down() -> bool {
 // ---------- informations de fenêtre ----------
 pub fn win_title(h: isize) -> String {
     let mut buf = [0u16; 512];
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     let n = unsafe { GetWindowTextW(hwnd(h), buf.as_mut_ptr(), 512) };
     String::from_utf16_lossy(&buf[..n.max(0) as usize])
 }
 
 pub fn win_class(h: isize) -> String {
     let mut buf = [0u16; 256];
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     let n = unsafe { GetClassNameW(hwnd(h), buf.as_mut_ptr(), 256) };
     String::from_utf16_lossy(&buf[..n.max(0) as usize])
 }
 
 pub fn win_exe(h: isize) -> String {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd(h), &mut pid);
@@ -187,6 +195,7 @@ pub fn win_exe(h: isize) -> String {
 
 pub fn win_rect(h: isize) -> (i32, i32, i32, i32) {
     let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         GetWindowRect(hwnd(h), &mut r);
     }
@@ -194,15 +203,18 @@ pub fn win_rect(h: isize) -> (i32, i32, i32, i32) {
 }
 
 pub fn foreground() -> isize {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe { GetForegroundWindow() as isize }
 }
 
 pub fn is_window(h: isize) -> bool {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     h != 0 && unsafe { IsWindow(hwnd(h)) != 0 }
 }
 
 pub fn cursor_pos() -> (i32, i32) {
     let mut p = POINT { x: 0, y: 0 };
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         GetCursorPos(&mut p);
     }
@@ -210,6 +222,7 @@ pub fn cursor_pos() -> (i32, i32) {
 }
 
 pub fn set_cursor_pos(x: i32, y: i32) {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         SetCursorPos(x, y);
     }
@@ -217,6 +230,7 @@ pub fn set_cursor_pos(x: i32, y: i32) {
 
 /// Fenêtre de premier niveau située sous un point de l'écran.
 pub fn root_at(x: i32, y: i32) -> isize {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         let h = WindowFromPoint(POINT { x, y });
         if h.is_null() {
@@ -254,6 +268,7 @@ pub fn mouse_click(x: i32, y: i32) -> Result<(), String> {
 }
 
 // ---------- retrouver, focaliser, cliquer ----------
+// SAFETY: fonction appelée uniquement par le système ou par le code de ce module avec des arguments valides.
 unsafe extern "system" fn collect(h: HWND, lparam: LPARAM) -> i32 {
     let list = &mut *(lparam as *mut Vec<isize>);
     if IsWindowVisible(h) != 0 {
@@ -268,6 +283,7 @@ pub fn find_window(t: &Target) -> Option<isize> {
         return Some(t.hwnd);
     }
     let mut all: Vec<isize> = Vec::new();
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         EnumWindows(Some(collect), &mut all as *mut Vec<isize> as LPARAM);
     }
@@ -277,6 +293,7 @@ pub fn find_window(t: &Target) -> Option<isize> {
 
 /// Amène la fenêtre au premier plan (la restaure si réduite). Vrai si réussi ; `stop` permet d'interrompre l'attente.
 pub fn focus_window(h: isize, stop: &dyn Fn() -> bool) -> bool {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         if IsIconic(hwnd(h)) != 0 {
             ShowWindowAsync(hwnd(h), SW_RESTORE); // asynchrone : ne bloque pas si la fenêtre ne répond pas
@@ -322,6 +339,7 @@ const SS_CENTERIMAGE: u32 = 0x200;
 /// Ouvre une adresse web dans le navigateur par défaut (appel standard de Windows, sans passer par l'Explorateur).
 pub fn open_url(url: &str) {
     let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         ShellExecuteW(std::ptr::null_mut(), wide("open").as_ptr(), wide(url).as_ptr(), std::ptr::null(), std::ptr::null(), 1);
     }
@@ -332,6 +350,7 @@ pub fn open_url(url: &str) {
 /// (Deux instances armées taperaient deux fois et s'écraseraient les réglages.)
 pub fn another_instance_running(window_title: &str) -> bool {
     let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         // le handle n'est jamais fermé : le mutex vit aussi longtemps que le processus
         CreateMutexW(std::ptr::null(), 0, wide("Local\\AutoKey.SingleInstance").as_ptr());
@@ -349,11 +368,13 @@ pub fn another_instance_running(window_title: &str) -> bool {
 
 // ---------- identité du processus ----------
 pub fn own_pid() -> u32 {
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe { GetCurrentProcessId() }
 }
 
 pub fn win_pid(h: isize) -> u32 {
     let mut pid = 0u32;
+    // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
     unsafe {
         GetWindowThreadProcessId(hwnd(h), &mut pid);
     }
@@ -371,6 +392,7 @@ impl Banner {
     pub fn show(text: &str) -> Banner {
         let close = Arc::new(AtomicBool::new(false));
         let (c2, text) = (close.clone(), text.to_string());
+        // SAFETY: appel Win32 : les pointeurs transmis (structures locales, tampons) sont valides pendant l'appel et les handles sont revérifiés par le système.
         let thread = std::thread::spawn(move || unsafe { banner_thread(&text, &c2) });
         Banner { close, thread: Some(thread) }
     }
@@ -385,6 +407,7 @@ impl Drop for Banner {
     }
 }
 
+// SAFETY: fonction appelée uniquement par le système ou par le code de ce module avec des arguments valides.
 unsafe fn banner_thread(text: &str, close: &AtomicBool) {
     let scale = GetDpiForSystem() as f32 / 96.0;
     let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };

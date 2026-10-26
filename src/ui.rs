@@ -1231,10 +1231,10 @@ impl App {
             if Pill::new(i18n::t(Msg::TestBtn), KEY, KEY_HOV, TXT).h(40.0).radius(12).enabled(!running).show(ui).clicked() {
                 self.test(ctx);
             }
-            if matches!(engine::input_state(), Input::Needed | Input::Denied(_)) {
-                if Pill::new(i18n::t(Msg::WaylandAllow), ACCENT, ACCENT_HOV, Color32::WHITE).h(40.0).radius(12).show(ui).clicked() {
-                    engine::request_input();
-                }
+            if matches!(engine::input_state(), Input::Needed | Input::Denied(_))
+                && Pill::new(i18n::t(Msg::WaylandAllow), ACCENT, ACCENT_HOV, Color32::WHITE).h(40.0).radius(12).show(ui).clicked()
+            {
+                engine::request_input();
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let (text, kind) = self.sh.status.lock().unwrap().clone();

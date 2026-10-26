@@ -57,6 +57,7 @@ pub fn detect() -> Lang {
 fn system_locale() -> Option<String> {
     use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
     let mut buf = [0u16; 85];
+    // SAFETY: le tampon fourni est valide pour `buf.len()` éléments UTF-16 et vit pendant tout l'appel.
     let n = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), buf.len() as i32) };
     (n > 0).then(|| String::from_utf16_lossy(&buf[..(n as usize).saturating_sub(1)]))
 }

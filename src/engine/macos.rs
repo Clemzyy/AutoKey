@@ -66,6 +66,7 @@ const COMBINED: i32 = 0;
 
 /// Message à afficher si l'autorisation « Accessibilité » manque.
 pub fn session_warning() -> Option<Msg> {
+    // SAFETY: appel Quartz/CoreFoundation : arguments valides pendant l'appel, objets CF possédés ou retenus selon la règle de propriété indiquée.
     (!unsafe { AXIsProcessTrusted() }).then_some(Msg::MacPermission)
 }
 
@@ -160,6 +161,7 @@ fn find_char(c: char) -> Option<(u16, bool, bool)> {
         return None;
     }
     let target = units[0];
+    // SAFETY: appel Quartz/CoreFoundation : arguments valides pendant l'appel, objets CF possédés ou retenus selon la règle de propriété indiquée.
     unsafe {
         let source = TISCopyCurrentKeyboardLayoutInputSource();
         if source.is_null() {
@@ -227,6 +229,7 @@ pub fn keep_awake(on: bool) {
 }
 
 fn key_down(key: u16) -> bool {
+    // SAFETY: appel Quartz/CoreFoundation : arguments valides pendant l'appel, objets CF possédés ou retenus selon la règle de propriété indiquée.
     unsafe { CGEventSourceKeyState(COMBINED, key) }
 }
 
@@ -240,6 +243,7 @@ pub fn escape_down() -> bool {
 }
 
 pub fn left_button_down() -> bool {
+    // SAFETY: appel Quartz/CoreFoundation : arguments valides pendant l'appel, objets CF possédés ou retenus selon la règle de propriété indiquée.
     unsafe { CGEventSourceButtonState(COMBINED, 0) }
 }
 
@@ -255,6 +259,7 @@ pub fn cursor_pos() -> (i32, i32) {
 }
 
 pub fn set_cursor_pos(x: i32, y: i32) {
+    // SAFETY: appel Quartz/CoreFoundation : arguments valides pendant l'appel, objets CF possédés ou retenus selon la règle de propriété indiquée.
     unsafe {
         CGWarpMouseCursorPosition(CGPoint::new(x as f64, y as f64));
     }
@@ -316,12 +321,14 @@ fn windows(all: bool) -> Vec<Win> {
     let Some(list) = copy_window_info(option, kCGNullWindowID) else { return Vec::new() };
     let mut out = Vec::new();
     for item in list.iter() {
+        // SAFETY: appel Quartz/CoreFoundation : arguments valides pendant l'appel, objets CF possédés ou retenus selon la règle de propriété indiquée.
         let dict: CFDictionary<CFString, CFType> = unsafe { CFDictionary::wrap_under_get_rule(*item as CFDictionaryRef) };
         let Some(id) = number(&dict, "kCGWindowNumber") else { continue };
         let rect = dict
             .find(CFString::new("kCGWindowBounds"))
             .and_then(|b| b.downcast::<CFDictionary>())
             .map(|b| {
+                // SAFETY: appel Quartz/CoreFoundation : arguments valides pendant l'appel, objets CF possédés ou retenus selon la règle de propriété indiquée.
                 let b: CFDictionary<CFString, CFType> = unsafe { CFDictionary::wrap_under_get_rule(b.as_concrete_TypeRef()) };
                 let (x, y) = (number(&b, "X").unwrap_or(0.0), number(&b, "Y").unwrap_or(0.0));
                 let (w, h) = (number(&b, "Width").unwrap_or(0.0), number(&b, "Height").unwrap_or(0.0));
