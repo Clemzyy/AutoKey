@@ -185,3 +185,22 @@ fn send(make: impl FnOnce(SyncSender<bool>) -> Cmd) -> bool {
 pub fn keycode(code: i32, down: bool) -> bool {
     send(|reply| Cmd::Keycode(code, down, reply))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn token_is_private_even_when_the_file_already_existed() {
+        let path = std::env::temp_dir().join(format!("autokey-token-test-{}", std::process::id()));
+        std::fs::write(&path, "ancien").expect("créer");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("droits");
+        save_token(&path, "nouveau");
+        let mode = std::fs::metadata(&path).expect("lire").permissions().mode() & 0o777;
+        let text = std::fs::read_to_string(&path).expect("lire");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(mode, 0o600);
+        assert_eq!(text, "nouveau");
+    }
+}
