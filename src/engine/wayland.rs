@@ -52,6 +52,22 @@ fn token_path() -> std::path::PathBuf {
         .join("wayland-token")
 }
 
+/// Écrit le jeton lisible par l'utilisateur seul (droits 0600), même si le fichier existait avec d'autres droits.
+fn save_token(path: &std::path::Path, token: &str) {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path);
+    if let Ok(mut f) = file {
+        let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
+        let _ = f.write_all(token.as_bytes());
+    }
+}
+
 /// Vrai si un accord mémorisé existe : l'autorisation peut alors être rétablie sans fenêtre de confirmation.
 pub fn has_saved_token() -> bool {
     std::fs::read_to_string(token_path()).is_ok_and(|t| !t.trim().is_empty())
@@ -123,7 +139,7 @@ async fn session() -> Result<(), State> {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let _ = std::fs::write(path, token);
+        save_token(&path, token);
     }
     let (tx, mut rx) = unbounded_channel::<Cmd>();
     if let Ok(mut slot) = TX.lock() {

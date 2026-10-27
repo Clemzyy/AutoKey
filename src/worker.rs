@@ -36,6 +36,13 @@ pub struct Shared {
     pub status: Mutex<(String, Kind)>,
     pub picked: Mutex<Option<Option<Target>>>, // Some(None) = repérage annulé
     pub picking: AtomicBool,
+    /// L'envoi lui-même maintient Ctrl + Alt et tape Échap : le raccourci d'urgence ne doit pas se déclencher tout seul.
+    pub ignore_panic: AtomicBool,
+}
+
+/// Vrai si ces modificateurs forment, avec Échap, le raccourci d'arrêt d'urgence (Alt Gr compte comme Ctrl + Alt sous Windows).
+fn holds_panic_combo(mods: &[(u16, bool)]) -> bool {
+    mods.contains(&(0x1D, false)) && (mods.contains(&(0x38, false)) || mods.contains(&(0x38, true)))
 }
 
 /// Message affiché quand rien ne se passe : le rappel de l'arrêt d'urgence, ou l'état de l'autorisation sous Linux.
@@ -82,6 +89,7 @@ impl Shared {
             status: Mutex::new(idle_status()),
             picked: Mutex::new(None),
             picking: AtomicBool::new(false),
+            ignore_panic: AtomicBool::new(false),
         })
     }
 
@@ -92,7 +100,7 @@ impl Shared {
 
     /// Vrai si l'envoi doit s'arrêter (bouton Annuler ou raccourci d'urgence).
     pub fn stop(&self) -> bool {
-        if engine::panic_pressed() {
+        if !self.ignore_panic.load(Ordering::SeqCst) && engine::panic_pressed() {
             self.cancel.store(true, Ordering::SeqCst);
         }
         self.cancel.load(Ordering::SeqCst)
@@ -179,9 +187,13 @@ fn press_once(job: &Job, sh: &Shared) -> bool {
             Item::Char(c) => ok &= engine::send_char(*c),
             Item::Press(c) => ok &= engine::press_char(*c),
             Item::Key(scan, ext) => {
+                // Ctrl + Alt + Échap envoyé par l'action elle-même : ce n'est pas l'utilisateur qui demande l'arrêt
+                let own_combo = *scan == 0x01 && holds_panic_combo(&job.mods);
+                sh.ignore_panic.store(own_combo, Ordering::SeqCst);
                 ok &= engine::send_scan(*scan, *ext, false);
                 sleep(Duration::from_millis(20));
                 ok &= engine::send_scan(*scan, *ext, true);
+                sh.ignore_panic.store(false, Ordering::SeqCst);
             }
         }
         sleep(Duration::from_millis(20));
@@ -340,4 +352,18 @@ pub fn spawn_pick(sh: Arc<Shared>, ctx: egui::Context) {
         *sh.picked.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
         ctx.request_repaint();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panic_combo_needs_ctrl_and_alt() {
+        assert!(holds_panic_combo(&[(0x1D, false), (0x38, false)]));
+        assert!(holds_panic_combo(&[(0x1D, false), (0x38, true)]));
+        assert!(!holds_panic_combo(&[(0x1D, false)]));
+        assert!(!holds_panic_combo(&[(0x38, false), (0x2A, false)]));
+        assert!(!holds_panic_combo(&[]));
+    }
 }

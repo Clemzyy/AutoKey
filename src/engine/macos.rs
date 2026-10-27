@@ -569,3 +569,8 @@ impl Banner {
         Banner
     }
 }
+
+// Drop explicite : le code commun fait `drop(banner)` pour fermer la bannière des autres systèmes.
+impl Drop for Banner {
+    fn drop(&mut self) {}
+}

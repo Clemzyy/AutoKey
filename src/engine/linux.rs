@@ -265,7 +265,10 @@ fn keymap(x: &X) -> Option<Arc<Keymap>> {
 
 /// (touche, Maj, Alt Gr) qui produit `c` avec la disposition active ; `None` si elle ne le contient pas.
 fn find_char(km: &Keymap, c: char) -> Option<(u8, bool, bool)> {
-    let mut best: Option<((bool, usize, u8), (u8, bool, bool))> = None;
+    // (rang, plan) : le plus petit rang gagne
+    type Rank = (bool, usize, u8);
+    type Plan = (u8, bool, bool);
+    let mut best: Option<(Rank, Plan)> = None;
     for (i, entry) in km.syms.chunks(km.per.max(1)).enumerate() {
         let code = km.first.wrapping_add(i as u8);
         // dans le protocole X11 : 0 = base, 1 = Maj, 4 = Alt Gr, 5 = Alt Gr + Maj (2 et 3 sont le second groupe)
@@ -720,8 +723,10 @@ pub fn find_window(t: &Target) -> Option<isize> {
         return Some(t.hwnd);
     }
     let x = x()?;
-    let found: Vec<isize> = prop32(x, x.root, x.atoms.client_list, AtomEnum::WINDOW)
+    // de la fenêtre du dessus à celle du dessous, comme sous Windows
+    let found: Vec<isize> = stacked(x)
         .into_iter()
+        .rev()
         .map(|w| w as isize)
         .filter(|h| win_class(*h) == t.cls && win_exe(*h) == t.exe)
         .collect();
@@ -807,11 +812,32 @@ fn x_layout() -> Option<(String, String)> {
 
 /// Sous Wayland (GNOME), la disposition est dans les sources de saisie : « [('xkb', 'fr'), ('xkb', 'us+dvorak')] ».
 fn gnome_layout() -> Option<(String, String)> {
-    let out = Command::new("gsettings")
+    let mut child = Command::new("gsettings")
         .args(["get", "org.gnome.desktop.input-sources", "sources"])
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
         .ok()?;
-    let text = String::from_utf8(out.stdout).ok()?;
+    // lecture dans un thread : si gsettings se bloque, on abandonne au bout de 2 s au lieu de retarder la frappe
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = std::io::Read::read_to_string(&mut stdout, &mut buf);
+        let _ = tx.send(buf);
+    });
+    let text = match rx.recv_timeout(Duration::from_secs(2)) {
+        Ok(t) => {
+            let _ = child.wait();
+            t
+        }
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
     let first = text.split('\'').nth(3)?; // [('xkb', 'fr') -> fr
     let (layout, variant) = first.split_once('+').unwrap_or((first, ""));
     Some((layout.to_string(), variant.to_string()))
@@ -822,9 +848,11 @@ fn gnome_layout() -> Option<(String, String)> {
 /// (Deux instances armées taperaient deux fois et s'écraseraient les réglages.)
 pub fn another_instance_running(window_title: &str) -> bool {
     static LOCK: OnceLock<std::fs::File> = OnceLock::new();
+    // dossier propre à l'utilisateur : jamais /tmp, où un autre compte pourrait occuper le nom du verrou
     let dir = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+        .unwrap_or_else(|| crate::model::config_dir().join("AutoKey"));
+    let _ = std::fs::create_dir_all(&dir);
     let Ok(file) = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
